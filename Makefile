@@ -8,7 +8,7 @@ QFLAGS = -nographic -m 128M -machine virt -smp 3
 QFLAGS += -bios default
 
 CFLAGS = --release
-#bios/rustsbi-qemu.bin
+
 all:
 	@cargo xbuild 
 	@echo "building ..."
@@ -23,11 +23,15 @@ qemu:all
 	@echo "qemu start"
 	@$(QEMU) $(QFLAGS) -kernel $K/os.bin
 	
-.PHONY:qemu-gdb
+.PHONY:qemu-gdb add
 qemu-gdb:all
 	@echo "please link localhot::26000"
 	@$(QEMU) $(QFLAGS) -kernel $K/os -S  -gdb tcp::26000
+
+add:
+	git add  src user Cargo.lock Cargo.toml Makefile README.md .cargo 
 clean:
+	cargo clean 
 	rm $K/os.bin \
 		$K/os \
 		os.asm \

@@ -1,7 +1,7 @@
     .section .text.entry
     .global _start
 _start:
-    add tp,a0,a0
+    add tp,a0,x0
     la sp,bootstack
     li t0,4096*2
     addi a0,a0,1

@@ -1,77 +1,90 @@
 #![allow(unused)]
-use crate::{sbi::consele_putchar,};
+use core::panic;
+
+use crate::{sbi::consele_putchar, cpu::CPUS,};
 use core::{fmt::{self,Write, Arguments},};
 
+use crate::sync::spin::Spin;
+use core::sync::atomic::{AtomicBool, Ordering};
 
-struct Ptcr;
+pub static  PTCR:Ptcr = Ptcr{
+    writer: Spin::new(Writer, "Pctr"),
+    locking : AtomicBool::new(true),
+    panicked : AtomicBool::new(false),
+};
+struct Writer;
+pub struct Ptcr{
+    writer:Spin<Writer>,
+    locking:AtomicBool,
+    panicked:AtomicBool,
+}
 
-impl Write for Ptcr {
+impl Ptcr {
+    pub fn panicked(&self) -> &AtomicBool {
+        &self.panicked
+    }
+}
+
+impl Write for Writer {
     fn write_str(&mut self,s:&str) -> fmt::Result{
         for c in s.chars(){
             consele_putchar(c as usize);
+            // ptuc_sync(c as usize);
         }
         Ok(())
     }
 }
 
 pub fn print(args: fmt::Arguments) {
-    Ptcr.write_fmt(args).unwrap();
+    //Writer.write_fmt(args).unwrap();
+    use fmt::Write;
+    if PTCR.locking.load(Ordering::Acquire){
+        unsafe {PTCR.writer.lock().write_fmt(args).expect("print error");}
+    }
+    //else {
+        //for panic??
+    //}
 }
 
 #[macro_export]
 macro_rules! print {
     ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::console::print(format_args!($fmt $(, $($arg)+)?));
+        $crate::console::print(format_args!($fmt $(, $($arg)+)?))
     }
 }
 
 #[macro_export]
 macro_rules! println {
     ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::console::print(format_args!(concat!($fmt, "\n") $(, $($arg)+)?));
+        $crate::console::print(format_args!(concat!($fmt, "\n") $(, $($arg)+)?))
     }
-}
-pub fn info(args:fmt::Arguments){
-    
-    print!("\x1b[34m");
-    print!("[INFO]:");
-    Ptcr.write_fmt(args).unwrap();
-    print!("\x1b[0m");
-    print!("\n")
-}
-
-pub fn debug(args:fmt::Arguments){
-    print!("\x1b[32m");
-    print!("[DEBUG]:");
-    Ptcr.write_fmt(args).unwrap();
-    print!("\x1b[0m");
-    print!("\n")
-}
-
-pub fn error(args:fmt::Arguments){
-    print!("\x1b[31m");
-    print!("[ERROR]:");
-    Ptcr.write_fmt(args).unwrap();
-    print!("\x1b[0m");
-    print!("\n")
 }
 
 #[macro_export]
 macro_rules! info {
     ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::console::info(format_args!($fmt $(, $($arg)+)?));
-    }
-}
-#[macro_export]
-macro_rules! error {
-    ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::console::error(format_args!($fmt $(, $($arg)+)?));
-    }
-}
-#[macro_export]
-macro_rules! debug {
-    ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::console::debug(format_args!($fmt $(, $($arg)+)?));
+        $crate::console::print(format_args!(concat!("\x1b[34m[INFO]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
     }
 }
 
+#[macro_export]
+macro_rules! debug {
+    ($fmt: literal $(, $($arg: tt)+)?) => {
+        $crate::console::print(format_args!(concat!("\x1b[32m[DEBUG]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
+    }
+}
+
+#[macro_export]
+macro_rules! error {
+    ($fmt: literal $(, $($arg: tt)+)?) => {
+        $crate::console::print(format_args!(concat!("\x1b[31m[DEBUG]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
+    }
+}
+
+// #[panic_handler]
+// fn panic(info: &panic::PanicInfo<'_>) -> ! {
+//     //PTCR.locking.store(false, Ordering::Relaxed);
+//     crate::println!("{}", info);
+//     //PTCR.panicked.store(true, Ordering::Release);
+//     loop {}
+// }
