@@ -39,5 +39,4 @@ pub fn shutdown() -> ! {
 }
 pub fn sbi_hsm_hart_start(hart_id:usize){
     let i= sbi_call(SBI_EXT_HSM, hart_id, 0x80200000, 64, 0x0);
-    //debug!("sbi ret{}",i);
 }

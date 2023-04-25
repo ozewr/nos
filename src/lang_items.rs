@@ -1,3 +1,4 @@
+
 use core::{panic::{PanicInfo}};
 
 use crate::{println, sbi::shutdown, info};
@@ -18,3 +19,9 @@ fn panic(_info: &PanicInfo) -> ! {
     //shutdown();
     loop{};
 }
+
+#[alloc_error_handler]
+pub fn handle_alloc_error(layout: core::alloc::Layout) -> ! {
+    panic!("Heap allocation error, layout = {:?}", layout);
+}
+

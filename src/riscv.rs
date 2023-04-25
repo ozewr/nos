@@ -1,5 +1,8 @@
 use riscv::register::sstatus;
-use core::arch::asm;
+use core::{arch::asm, };
+
+pub const PGSZ:usize = 4096;
+
 #[inline]
 pub fn intr_get() -> bool {
     sstatus::read().sie()

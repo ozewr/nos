@@ -10,6 +10,8 @@ QFLAGS += -bios default
 CFLAGS = --release
 
 all:
+	@make -C user
+	@echo "make user"
 	@cargo xbuild 
 	@echo "building ..."
 	@$(OBJDUMP) -S $K/os > os.asm
@@ -29,10 +31,10 @@ qemu-gdb:all
 	@$(QEMU) $(QFLAGS) -kernel $K/os -S  -gdb tcp::26000
 
 add:
+	cargo clean
 	git add  src user Cargo.lock Cargo.toml Makefile README.md .cargo 
 clean:
 	cargo clean 
-	rm $K/os.bin \
-		$K/os \
-		os.asm \
+	make clean -C user 
+	rm	os.asm \
 		os.sym \

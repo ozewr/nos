@@ -1,3 +1,4 @@
+
 // Gets the bytes of the value.
 //
 // as_bytes() provides access to the bytes of the value as an immutable
@@ -46,4 +47,38 @@ macro_rules! array {
             ManuallyDrop::into_inner(_transmuter { arr_in: ManuallyDrop::new(arr_in) }.arr_out)
         }
     };
+}
+
+//some useful function
+use crate::{info,debug,println,error};
+pub fn clear_bss(){
+    extern "C"{
+        fn sbss();
+        fn ebss();
+    }
+    (
+        sbss as usize..ebss as usize).for_each(|a|{
+            unsafe{
+                (a as *mut u8).write_volatile(0)
+            }
+        }
+    )
+}
+
+#[allow(unused)]
+pub fn print_info(){
+    extern "C"{
+        fn stext();
+        fn etext();
+        fn srodata();
+        fn erodata();
+        fn sdata();
+        fn edata();
+        fn ekernel();
+        fn skernel();
+    }
+    info!(".text [{:#x}, {:#x})", stext as usize, etext as usize);
+    info!(".ekernel [{:#x}, {:#x})", skernel as usize, ekernel as usize);
+    debug!(".rodata [{:#x}, {:#x})", srodata as usize, erodata as usize);
+    error!(".data [{:#x}, {:#x})", sdata as usize, edata as usize); 
 }

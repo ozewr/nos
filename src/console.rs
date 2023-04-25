@@ -1,7 +1,7 @@
 #![allow(unused)]
 use core::panic;
 
-use crate::{sbi::consele_putchar, cpu::CPUS,};
+use crate::{sbi::consele_putchar, cpu::CPUS, riscv::{intr_off, intr_on},};
 use core::{fmt::{self,Write, Arguments},};
 
 use crate::sync::spin::Spin;
@@ -36,14 +36,10 @@ impl Write for Writer {
 }
 
 pub fn print(args: fmt::Arguments) {
-    //Writer.write_fmt(args).unwrap();
     use fmt::Write;
     if PTCR.locking.load(Ordering::Acquire){
         unsafe {PTCR.writer.lock().write_fmt(args).expect("print error");}
     }
-    //else {
-        //for panic??
-    //}
 }
 
 #[macro_export]
