@@ -127,33 +127,33 @@ UnSafeCell比较强大，它告诉编译器，即使存在不可变应用例如'
 实现了虚拟化
 
 src
-├── batch.rs
-├── console.rs
-├── cpu.rs
-├── entry.s
-├── kalloc.rs                        (new file)
-├── lang_items.rs                
-├── link_app.s
-├── linker.ld
-├── main.rs
-├── memlayout.rs                (new file )
-├── page_alloc.rs                   (new file)
-├── riscv.rs
-├── sbi.rs
-├── sync
-│   ├── mod.rs
-│   ├── spin.rs
-│   └── up.rs
-├── syscall
-│   ├── fs.rs
-│   └── mod.rs
-├── thread.rs                        
-├── trap
-│   ├── context.rs
-│   ├── mod.rs
-│   └── trap.s
-├── utils.rs
-└── vm.rs                            (new file)
+├── batch.rs  
+├── console.rs  
+├── cpu.rs  
+├── entry.s  
+├── kalloc.rs                        (new file)  
+├── lang_items.rs                        
+├── link_app.s  
+├── linker.ld  
+├── main.rs  
+├── memlayout.rs                (new file )  
+├── page_alloc.rs                   (new file)  
+├── riscv.rs  
+├── sbi.rs  
+├── sync  
+│   ├── mod.rs  
+│   ├── spin.rs  
+│   └── up.rs  
+├── syscall  
+│   ├── fs.rs  
+│   └── mod.rs  
+├── thread.rs                      
+├── trap  
+│   ├── context.rs  
+│   ├── mod.rs  
+│   └── trap.s  
+├── utils.rs  
+└── vm.rs                            (new file)   
 
 主要添加的文件 ：
 
@@ -192,8 +192,6 @@ vm.rs 中是映射函数。
 //此分配函数调用分配器里面的真正分配器StackFrame分配一个页
 //然后传入AllocerGuard，让他创建一个结构体。
 FARME_AllOC.page_alloc()->FARME_ALLOC.allocer.alloc()->AllocerGuard::new()
-
-
 ```
 
 ### vm.rs
@@ -226,8 +224,6 @@ PageTable：
 
  [管理 SV39 多级页表 - rCore-Tutorial-Book-v3 3.6.0-alpha.1 文档](http://rcore-os.cn/rCore-Tutorial-Book-v3/chapter4/4sv39-implementation-2.html)在这个文档的“内核中访问物理页帧的方法”里面。
 
-
-
 #### PageTable
 
 页结构体里面封装了映射方法。
@@ -252,12 +248,13 @@ walk函数返回一个PhyPageNum数组，这个数组可以理解成一个页表
 
 这样在main函数里面调用这个函数就可以了。
 
-
-
 ### 缺点
 
 虽然能跑，但是也有很多缺点，由于最开始是跟着教程做，所以有一些代码是冗余的。而且pagetable结构体也不是一个静态的，所以每个线程初始化的时候都需要重新初始化，又浪费空间又麻烦。然后呢由于堆空间是直接在内核里面的，我有点不好映射堆的空间，导致我必须将内核空间全部映射成可读可写。还有肯定还有我没发现的缺点。
 
+## day 6
 
+接下来首先完成时钟中断的配置（1天），然后写文件系统（3天），然后写进程（3天），然后完成进程的多任务（3天）。
+预计5月20号初步完成。 
 
 
