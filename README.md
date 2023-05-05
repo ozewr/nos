@@ -43,8 +43,6 @@ src
     ├── mod.rs      (new)  
     └── trap.s      (new)  
 
-
-
 ## day4
 
 写了一个自选锁，目前支持多核运行。  
