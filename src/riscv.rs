@@ -29,3 +29,8 @@ pub fn r_tp() -> usize{
         id
     }
 }
+
+#[inline]
+pub fn sfence_vma(){
+    unsafe {asm!("sfence.vma zero,zero");}
+}

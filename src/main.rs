@@ -15,6 +15,7 @@ use core::{
     arch::global_asm,
 };
 use alloc::boxed::Box;
+use vm::PageTable;
 use crate::{
     riscv::r_tp,
     sbi::shutdown,
@@ -26,5 +27,20 @@ global_asm!(include_str!("link_app.s"));
 
 #[no_mangle]
 pub fn rust_main() -> ! {
-   loop{}
+    utils::clear_bss();
+    thread_start();
+    let cpuid :usize =r_tp();
+    if cpuid == 0 {
+        println!("hart {} is botting",cpuid);
+        print_info();
+        trap::trap_init();
+        kalloc::init_heap();
+        page_alloc::FRAME_ALLOC.allocer_init();
+        let a :AllocerGuard= FRAME_ALLOC.page_alloc();
+        let b :usize= FRAME_ALLOC.page_alloc().into();
+        info!("a :{:#x} b: {:#x}  ",a.pages.0,b);
+    }else {
+        println!("hrat {} is botting",cpuid);
+    }
+    loop {}
 }
