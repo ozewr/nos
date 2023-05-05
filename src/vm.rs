@@ -1,8 +1,12 @@
 use::alloc::vec::Vec;
 use riscv::register::stvec;
-use crate::{sync::spin::Spin, memlayout::{PA_WIDTH_SV39,VA_WIDTH_SV39, PPN_SV39, VPN_SV39, PTE_V}};
-use core::sync::atomic::{AtomicUsize,AtomicPtr};
+use riscv::register::satp;
+use crate::riscv::sfence_vma;
+use crate::{sync::spin::Spin, memlayout::{PA_WIDTH_SV39,VA_WIDTH_SV39, PPN_SV39, VPN_SV39, PTE_V, PHYSTOP, MAXVA, PTE_A, KERNBASE, PTE_R, PTE_X, PTE_W}, page_alloc::{AllocerGuard, FRAME_ALLOC}, println};
+use core::{sync::atomic::{AtomicUsize,AtomicPtr}, usize};
 use crate::riscv::PGSZ;
+use crate::kalloc::HEAP_SPACE;
+use crate::debug;
 
 #[derive(Clone,Copy,Ord,PartialEq, PartialOrd,Eq)]
 pub struct  PhyAddr(pub usize);
@@ -13,12 +17,15 @@ pub struct PhyPageNum(pub usize);
 #[derive(Clone,Copy,Ord,PartialEq, PartialOrd,Eq)]
 pub struct  VirPageNum(pub usize);
 
+// #[derive(Copy, Clone)]
+// #[repr(C)]
+// pub struct PageTableEntry(pub PhyPageNum);
 
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct PageTableEntry {
-    pub pte: usize,
+pub struct PageTable{
+    root:PhyPageNum,
+    pagetable:Vec<AllocerGuard>,
 }
+
 
 impl From<usize> for PhyAddr{
     fn from(value: usize) -> Self {
@@ -27,7 +34,7 @@ impl From<usize> for PhyAddr{
 
 impl From<usize> for PhyPageNum {
     fn from(value: usize) -> Self {
-        Self(value&((1<<PPN_SV39)-1))}
+        Self(value &((1<<PPN_SV39)-1))}
 }
 
 impl From<PhyAddr> for usize {
@@ -55,6 +62,7 @@ impl From<VirPageNum> for usize {
     fn from(value: VirPageNum) -> Self {value.0}
 }
 
+
 impl PhyAddr {
     pub fn page_offset(&self)-> usize{
         self.0 & (0xfff)
@@ -67,8 +75,8 @@ impl VirAddr {
     pub fn page_offset(&self)-> usize{
         self.0 & (0xfff)
     }
-    pub fn round_down(&self) -> VirPageNum{VirPageNum((self.0/PGSZ))}
-    pub fn round_up(&self) -> VirPageNum{VirPageNum((self.0+PGSZ-1)/PGSZ)}
+    pub fn round_down(&self) -> VirPageNum{VirPageNum((self.0 & !(PGSZ - 1)))}
+    pub fn round_up(&self) -> VirPageNum{VirPageNum((self.0+PGSZ-1) & !(PGSZ -1))}
 }
 
 impl From<PhyAddr> for PhyPageNum {
@@ -85,56 +93,170 @@ impl From<VirAddr> for VirPageNum {
     }
 }
 
-impl PageTableEntry {
-    pub fn new(ppn:PhyPageNum,flags:usize) -> Self{
-        PageTableEntry{
-            pte: ppn.0<<10 | flags
-        }
-    }
-    pub fn get_ppn(&self)-> PhyPageNum {
-      PhyPageNum( (self.pte >>10 & (1<<44 -1)) )
-    }
-    pub fn flags(&self) -> usize {
-        self.pte & 0x3ff
-    }
-    pub fn to_pa(&self) -> PhyAddr {
-        ((self.pte >> 10) >>12).into()
-    }
-    pub fn is_v(&self) -> bool {
-        if (self.pte & PTE_V) != 0 {
-            true
-        }else {
-            false
-        } 
-    }
-}
 
 
 impl PhyPageNum {
 
-    pub fn get_pte_array(&self) -> &'static mut [PageTableEntry] {
+    pub fn get_pte_array(&self) -> &'static mut [PhyPageNum] {
         let pa :usize = self.clone().into();
         let pa :PhyAddr= pa.into();
         unsafe{
             core::slice::from_raw_parts_mut(
-                pa.0 as *mut PageTableEntry, 
+                pa.0 as *mut PhyPageNum,
                 512)
         }
     }
-    
+
     pub fn get_bytes_array(&self) -> &'static mut [u8]{
         let pa :usize = self.clone().into();
         let pa :PhyAddr= pa.into();
         unsafe{
-            core::slice::from_raw_parts_mut(pa.0 as *mut u8, 4096)
+            core::slice::from_raw_parts_mut(pa.0 as *mut u8, PGSZ)
         }
     }
+
     pub fn get_mut<T>(&self) -> &'static mut T{
         let pa :usize = self.clone().into();
         let pa :PhyAddr= pa.into();
         unsafe{
-            (pa.0 as *mut T).as_mut().unwrap()  
+            println!("get_mut:{:#x}",pa.0);  
+            (pa.0 as *mut T).as_mut().unwrap()
         }
     }
+
+    pub fn is_v(&self) -> bool {
+        self.0 & PTE_V != 0
+    } 
+
+}
+
+impl PageTable{
+    pub fn new() -> Self{
+        let pte: AllocerGuard = FRAME_ALLOC.page_alloc();
+        let page = pte.pages;
+        let mut v = Vec::new();
+        v.push(pte);
+        Self { 
+            root: page,
+            pagetable: v,
+        }
+    }
+
+    pub fn mappages(&mut self,va:VirAddr,pa:PhyAddr,size:usize,perm : usize) -> bool{
+        if (size == 0){
+            panic!("map error size = 0")
+        }
+        let mut a: VirPageNum = va.round_down();
+        let mut last:VirAddr = (va.0+size).into();
+        let mut last: VirPageNum = last.round_down();
+
+        let mut a :usize = a.into();
+        let mut last:usize = last.into();
+
+        let mut pa :usize = pa.0;
+        loop{
+            let mut pgtbl_arry:&mut [PhyPageNum] = self.root.get_pte_array();
+            let mut pagetable:&mut [PhyPageNum] = self.walk(a, true,pgtbl_arry).unwrap();
+            let idx = (a >> (12+0)) & 0x1ff;
+            let pte: PhyPageNum = pagetable[idx];
+            
+            if (pte).is_v(){
+                panic!("mappages: remap")
+            }
+            let pte_temp:PhyPageNum = PhyPageNum((((pa >>12 ) <<10) | perm | PTE_V)); //pa2pte
+            pagetable[idx] = pte_temp;
+            if a == last{
+                break;
+            }
+            a += PGSZ;
+            pa+= PGSZ;
+        }
+        true
+    }
+
+    pub fn walk(&mut self,va:usize,alloc:bool,mut pgtbl_arry:&'static mut [PhyPageNum]) -> Option<&'static mut [PhyPageNum]> {
+        let mut pte_save: &Vec<AllocerGuard> = &self.pagetable;
+        
+        if(va >= MAXVA){
+            panic!("va to big");
+        }
+        let mut pagetable: &mut [PhyPageNum] = self.root.get_pte_array();
+        
+        let mut temp_store :Option<PhyPageNum> = None;
+        for level in (1..3).rev(){
+                let idx  = (va >>(12+9*level)) & 0x1ff;
+                let mut pte: PhyPageNum = pagetable[idx];
+                if unsafe{(pte).is_v()} {
+                    unsafe{
+                        pagetable = PhyPageNum( ((pte.0 >> 10) <<12) ).get_pte_array();//pte2pa
+                        temp_store = Some(PhyPageNum((pte.0 >> 10) << 12));
+                    }
+                }else {
+                    if !alloc {
+                        return None;
+                    }else {
+                        let frame: AllocerGuard = FRAME_ALLOC.page_alloc();
+                        let page: PhyPageNum = frame.pages;
+                        let pte_temp: PhyPageNum= PhyPageNum((((page.0) >> 12)<< 10 ) | PTE_V);//pa2pte
+                        pagetable[idx] = pte_temp;
+                        temp_store = Some(page);
+                        pagetable = page.get_pte_array();
+                        self.pagetable.push(frame);      
+                    }
+                }
+                //pgtbl_arry = pagetable;
+        }
+        pgtbl_arry = temp_store.unwrap().get_pte_array();
+        Some(pgtbl_arry)
+    } 
+
+    pub fn kvmmap(&mut self,va:VirAddr,pa:PhyAddr,size:usize,perm : usize){
+        if (!self.mappages(va, pa, size, perm)){
+            panic!("kvmmap")
+        }
+    }
+
+    pub fn as_satp(&mut self) -> usize{
+        let addr:usize = self.root.0;
+        let mut bits:usize = 0;
+        let sv_39:usize =8;
+        bits = ( sv_39 << 60) | (addr >> 12);
+        bits
+    }
+}
+
+pub fn kvmmake(pagetable:&mut PageTable) ->&mut PageTable{
+    extern "C"{
+        fn stext();
+        fn etext();
+        fn srodata();
+        fn erodata();
+        fn sdata();
+        fn edata();
+        fn ekernel();
+        fn skernel();
+    }
+    pagetable.mappages(
+        KERNBASE.into(),
+        KERNBASE.into(),
+        (etext as usize) - KERNBASE,
+        PTE_R|PTE_X|PTE_W
+    );
+    // etext remap so +PGSZ
+    pagetable.mappages(
+        ((etext as usize)+PGSZ).into(),
+        ((etext as usize)+PGSZ).into(),
+        PHYSTOP-(etext as usize), 
+        PTE_R|PTE_X|PTE_W
+    );
+    pagetable
+}
+
+pub fn kvminithart(pagetable:&mut PageTable){
+    unsafe{
+        riscv::register::satp::write(pagetable.as_satp());
+        sfence_vma();
+    }
+    println!("kvm init!");
 }
 

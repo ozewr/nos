@@ -36,9 +36,9 @@ pub fn rust_main() -> ! {
         trap::trap_init();
         kalloc::init_heap();
         page_alloc::FRAME_ALLOC.allocer_init();
-        let a :AllocerGuard= FRAME_ALLOC.page_alloc();
-        let b :usize= FRAME_ALLOC.page_alloc().into();
-        info!("a :{:#x} b: {:#x}  ",a.pages.0,b);
+        let mut pagetable = PageTable::new();
+        vm::kvmmake(&mut pagetable);
+        vm::kvminithart(&mut pagetable);
     }else {
         println!("hrat {} is botting",cpuid);
     }
