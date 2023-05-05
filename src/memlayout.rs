@@ -8,6 +8,10 @@ pub const VA_WIDTH_SV39:usize = 39;
 pub const PPN_SV39:usize = PA_WIDTH_SV39 - PAGE_SIZE_BITS;
 pub const VPN_SV39:usize = VA_WIDTH_SV39 - PAGE_SIZE_BITS;
 
+
+pub const MAXVA:usize = (1 << (9 + 9 + 9 + 12 - 1));
+
+
 pub const PTE_V:usize = 1<<0;
 pub const PTE_R:usize = 1<<1;
 pub const PTE_W:usize = 1<<2;
@@ -16,3 +20,4 @@ pub const PTE_U:usize = 1<<4;
 pub const PTE_G:usize = 1<<5;
 pub const PTE_A:usize = 1<<6;
 pub const PTE_D:usize = 1<<7;
+

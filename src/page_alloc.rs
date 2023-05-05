@@ -9,7 +9,6 @@ pub static FRAME_ALLOC:FarmeAllocer = FarmeAllocer::new();
 pub struct FarmeAllocer{
     allocer:Spin<StackFrame>
 }
-
 pub struct AllocerGuard{
     pub pages:PhyPageNum
 }
@@ -24,6 +23,7 @@ pub struct StackFrame{
     current:usize,
     end:usize,
     free:Vec<usize>,
+    num:usize,
 }
 
 impl StackFrame {
@@ -31,23 +31,27 @@ impl StackFrame {
         Self { 
             current: 0 ,
             end: 0, 
-            free: Vec::new(), 
+            free: Vec::new(),
+            num:0, 
         }
     }
     pub fn init(&mut self,s:PhyPageNum,e:PhyPageNum) {
         self.current = s.into();
         self.end = e.into();
+        // println!("curret:{:#x} end :{:#x}",self.current,self.end);
     }
 
     pub fn alloc(&mut self) -> PhyPageNum {
-        if self.current >= self.end{
-            panic!("no pages")
-        }
         let pages:Option<usize> = self.free.pop();
         match pages {
             None => {
-                let ret = self.current;
-                self.current+= PGSZ;
+                let ret: usize = self.current;
+                if ret >= self.end{
+                   println!(" count = {}",self.num);
+                    panic!("nopages!")
+                }
+                self.current += PGSZ;
+                self.num+=1;
                 ret.into()
             },
             _ => pages.unwrap().into(),
@@ -68,13 +72,14 @@ impl StackFrame {
 
 impl FarmeAllocer {
     pub const fn new() -> Self{
-        Self { allocer: Spin::new(StackFrame::new(),"PgAllocer") }
+        Self { 
+            allocer: Spin::new(StackFrame::new(),
+            "PgAllocer") 
+        }
     }
     pub fn page_alloc(&self) -> AllocerGuard{
         unsafe{
-            AllocerGuard {
-                pages: self.allocer.lock().alloc(), 
-            }
+            AllocerGuard::new(self.allocer.lock().alloc())
         }
     }
     pub fn page_dealloc(&self,page:PhyPageNum){
@@ -95,13 +100,22 @@ impl FarmeAllocer {
     }
 }
 
+impl AllocerGuard {
+    pub fn new(page:PhyPageNum) -> Self {
+        let byte_arr = page.get_bytes_array();
+        for i in byte_arr {
+            *i = 0;
+        }
+        Self { 
+            pages:page
+        }
+    }
+}
 
 impl Drop for AllocerGuard {
     fn drop(&mut self){
        unsafe{
-        //println!("free:{:#x}",self.pages.0);
         FRAME_ALLOC.page_dealloc(self.pages);
-        //println!("free:{:#x}",self.pages.0)
        }
     }
 }

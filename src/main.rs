@@ -15,6 +15,7 @@ use core::{
     arch::global_asm,
 };
 use alloc::boxed::Box;
+use vm::PageTable;
 use crate::{
     riscv::r_tp,
     sbi::shutdown,
@@ -34,11 +35,14 @@ pub fn rust_main() -> ! {
         print_info();
         trap::trap_init();
         kalloc::init_heap();
-        page_alloc::FRAME_ALLOC.allocer_init();
-        let a :AllocerGuard= FRAME_ALLOC.page_alloc();
-        let b :usize= FRAME_ALLOC.page_alloc().into();
-        info!("a :{:#x} b: {:#x}  ",a.pages.0,b);
+        page_alloc::FRAME_ALLOC.allocer_init(); 
+        let mut pagetable: PageTable= PageTable::new();
+        vm::kvmmake(&mut pagetable);
+        vm::kvminithart(&mut pagetable);
     }else {
+        // let mut pagetable: PageTable= PageTable::new();
+        // vm::kvmmake(&mut pagetable);
+        //vm::kvminithart(&mut pagetable);
         println!("hrat {} is botting",cpuid);
     }
     loop {}
