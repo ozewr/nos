@@ -1,15 +1,29 @@
 use core::{arch::global_asm,str};
+use crate::riscv::{intr_on, intr_off};
 use crate::syscall::syscall;
-use riscv::register::{stvec,scause,stval};
+use riscv::register::{stvec,scause,stval, sepc, sstatus, sscratch};
 use riscv::register::{mtvec::TrapMode, scause::Trap};
+use riscv::register::scause::{Exception, Interrupt};
 
 use crate::batch::run_next_app;
 use crate::{println, syscall};
 
 use self::context::TrapContext;
+use self::ktrap::time_intr;
 pub mod context;
-
+pub mod ktrap;
 global_asm!(include_str!("trap.s"));
+global_asm!(include_str!("kernelvec.s"));
+
+pub fn ktrap_init(){
+    extern "C"{
+        fn kernelvec();
+    }
+    intr_on();
+    unsafe {stvec::write(kernelvec as usize, TrapMode::Direct);}
+    //ktrap::timerinit();
+    println!("Set kernel trap ok");
+}
 
 #[no_mangle]
 pub fn trap_handler(ctx:&mut TrapContext) -> () {
@@ -32,6 +46,28 @@ pub fn trap_handler(ctx:&mut TrapContext) -> () {
         }
     }
 }
+
+#[no_mangle]
+pub fn kernel_trap() -> (){
+    intr_off();
+    let sepc = sepc::read();
+    let sstatus = sstatus::read();
+    let scause = scause::read();
+    let sscratch = sscratch::read();
+    let stcval = stval::read();
+    match scause.cause() {
+        Trap::Exception(Exception::Breakpoint) => {
+            ktrap::break_intr();
+        }
+        Trap::Interrupt(Interrupt::SupervisorTimer) => {
+            ktrap::time_intr();
+        }
+        _=>{
+            println!("not write trap{:?} {:#x}",scause.cause(),stcval);
+        }
+    }
+}
+
 
 pub fn trap_init(){
     extern "C" {

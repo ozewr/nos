@@ -2,9 +2,10 @@
 #![allow(unused)]
 use core::arch::asm;
 use core::{cell::UnsafeCell, ops::Drop};
-use crate::array;
+use crate::{array, info};
 use crate::riscv::{intr_get, intr_off, intr_on};
 pub const NCPU:usize = 3;
+
 pub static CPUS :Cpus = Cpus::new();
 pub struct Cpu{
     pub noff:UnsafeCell<usize>,
@@ -28,6 +29,7 @@ impl Cpu {
     }
 
     unsafe fn locked(&mut self, old:bool) -> IntrLock {
+        intr_off();
         if *self.noff.get() == 0{
             self.intena = old;
         }
@@ -36,20 +38,22 @@ impl Cpu {
     }
 
     unsafe fn unlock(&self) {
-        assert!(!intr_get(), "unlock - interruptible");
+        //assert!(!intr_get(), "unlock - interruptible");
         let noff = self.noff.get();
-        // assert!(*noff >= 1, "unlock");
-        if(*noff >=1){
-            *noff -=1 ;
-        }else{
-            if *noff ==0 && self.intena {
-                intr_on()
-            }
-        }
-        // *noff -= 1;
+        assert!(!intr_get(), "unlock - interruptible");
+        assert!(*noff >= 1, "unlock");
+        // if(*noff >=1){
+        //     *noff -=1 ;
+        // }else{
+        //     if *noff ==0 && self.intena {
+        //         intr_on()
+        //     }
+        // }
+        *noff -= 1;
         if *noff == 0 && self.intena {
             intr_on()
         }
+
     }
 }
 
@@ -70,11 +74,8 @@ impl Cpus {
     }
     pub fn intr_lock(&self) -> IntrLock {
         let old = intr_get();
-        //intr_off();
         unsafe{
-            //intr_off();
             self.my_cpu().locked(old)
-            //intr_on();
         }
     }
 }
