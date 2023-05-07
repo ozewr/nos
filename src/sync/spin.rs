@@ -12,7 +12,7 @@ use core::ops::{Deref, DerefMut, Drop};
 
 pub struct Spin <T>{
     locked:AtomicPtr<Cpu>, // locked
-    data:UnsafeCell<T>, //actul data 
+    pub data:UnsafeCell<T>, //actul data 
     name:&'static str,
 }
 

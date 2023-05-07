@@ -1,6 +1,6 @@
 #![allow(unused)]
-use core::arch::asm;
-use crate::{debug};
+use core::{arch::asm, usize, primitive};
+use crate::{debug, println};
 const SBI_SET_TIMER: usize = 0;
 const SBI_CONSOLE_PUTCHAR: usize = 1;
 const SBI_CONSOLE_GETCHAR: usize = 2;
@@ -39,4 +39,8 @@ pub fn shutdown() -> ! {
 }
 pub fn sbi_hsm_hart_start(hart_id:usize){
     let i= sbi_call(SBI_EXT_HSM, hart_id, 0x80200000, 64, 0x0);
+}
+pub fn set_timer(time_value:usize){
+    sbi_call(SBI_SET_TIMER,time_value ,0,0,0);
+    //println!("sbi call {}", i);
 }

@@ -3,7 +3,6 @@ use crate::batch::run_next_app;
 use self::fs::{sys_write, sys_exit};
 
 mod fs;
-
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
 
