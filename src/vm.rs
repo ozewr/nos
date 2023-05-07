@@ -8,6 +8,10 @@ use crate::riscv::PGSZ;
 use crate::kalloc::HEAP_SPACE;
 use crate::debug;
 
+pub static PGTBIT:PageTableBit = PageTableBit{
+    pagetable:Spin::new(None, "pagetable_bit")
+};
+
 #[derive(Clone,Copy,Ord,PartialEq, PartialOrd,Eq)]
 pub struct  PhyAddr(pub usize);
 #[derive(Clone,Copy,Ord,PartialEq, PartialOrd,Eq)]
@@ -252,11 +256,31 @@ pub fn kvmmake(pagetable:&mut PageTable) ->&mut PageTable{
     pagetable
 }
 
-pub fn kvminithart(pagetable:&mut PageTable){
+pub fn kvminithart(pagetable:usize){
     unsafe{
-        riscv::register::satp::write(pagetable.as_satp());
+        riscv::register::satp::write(pagetable);
         sfence_vma();
     }
-    println!("kvm init!");
 }
 
+
+pub struct PageTableBit{
+    pagetable:Spin<Option<usize>>,
+}
+
+impl PageTableBit {
+    pub fn set_bit(&self,pagetable_bit:usize) {
+        unsafe {
+            let temp: &mut Option<usize> = self.pagetable
+                            .lock()
+                            .spin()
+                            .get_mut();
+            *temp = (Some(pagetable_bit))
+        };
+    }
+    pub fn get_bit(&self) -> Option<usize>{
+        let pagetable_bit :Option<usize>;
+        unsafe {pagetable_bit = *(self.pagetable.lock().spin().get_mut());}
+        pagetable_bit    
+    }
+}
