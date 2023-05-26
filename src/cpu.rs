@@ -1,15 +1,41 @@
-
 #![allow(unused)]
 use core::arch::asm;
+use core::option;
 use core::{cell::UnsafeCell, ops::Drop};
-use crate::{array, info};
+use crate::sync::UPSafeCell;
+use crate::{array, info, println};
 use crate::riscv::{intr_get, intr_off, intr_on};
 pub const NCPU:usize = 3;
-
+use crate::task::task::TaskControlBlock;
 pub static CPUS :Cpus = Cpus::new();
+use alloc::sync::Arc;
+use alloc::boxed::Box;
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct Context {
+    pub ra: usize,
+    pub sp: usize,
+
+    // callee-saved
+    pub s0: usize,
+    pub s1: usize,
+    pub s2: usize,
+    pub s3: usize,
+    pub s4: usize,
+    pub s5: usize,
+    pub s6: usize,
+    pub s7: usize,
+    pub s8: usize,
+    pub s9: usize,
+    pub s10: usize,
+    pub s11: usize,
+}
 pub struct Cpu{
     pub noff:UnsafeCell<usize>,
     pub intena:bool,
+    pub task : Option<Arc<TaskControlBlock>>,
+    pub context: Option<Context>,
 }
 pub struct  Cpus(
     [UnsafeCell<Cpu>; NCPU]
@@ -25,6 +51,8 @@ impl Cpu {
         Self{
             noff:UnsafeCell::new(0),
             intena:false,
+            task:None,
+            context:None,
         }
     }
 
@@ -55,6 +83,9 @@ impl Cpu {
         }
 
     }
+    // pub fn task_ref(&self) -> Arc<TaskControlBlock>{
+    //     self.task.unwrap().as_ref()
+    // }
 }
 
 
@@ -71,6 +102,14 @@ impl Cpus {
     pub unsafe fn my_cpu(&self) -> &mut Cpu{
         let id = Self::cpu_id();
         &mut *self.0[id].get()
+    }
+
+    pub fn my_proc(&self) -> Option<&Arc<TaskControlBlock>>{
+        let _intr_lock = self.intr_lock();
+        unsafe{
+            let c = self.my_cpu();
+            (*c).task.as_ref()
+        }
     }
     pub fn intr_lock(&self) -> IntrLock {
         let old = intr_get();

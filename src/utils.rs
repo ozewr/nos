@@ -1,4 +1,3 @@
-
 // Gets the bytes of the value.
 //
 // as_bytes() provides access to the bytes of the value as an immutable
@@ -50,7 +49,7 @@ macro_rules! array {
 }
 
 //some useful function
-use crate::{info,debug,println,error};
+use crate::{info,debug,println,error, memlayout::{TRAMPOLINE, TRAPFRAME}};
 pub fn clear_bss(){
     extern "C"{
         fn sbss();
@@ -65,6 +64,16 @@ pub fn clear_bss(){
     )
 }
 
+
+// #[macro_export]
+// macro_rules! debug {
+//     ($fmt: literal $(, $($arg: tt)+)?) => {
+//         #[cfg(feature = "debug")]
+//         $crate::console::print(format_args!(concat!("\x1b[34m[DEBUG]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
+//     }
+// }
+
+
 #[allow(unused)]
 pub fn print_info(){
     extern "C"{
@@ -76,8 +85,12 @@ pub fn print_info(){
         fn edata();
         fn ekernel();
         fn skernel();
+        fn trampoline();
+        fn trapframe();
     }
     info!(".text [{:#x}, {:#x})", stext as usize, etext as usize);
+    info!(".trampoline [{:#x})", TRAMPOLINE);
+    info!(".tramframe [{:#x})", TRAPFRAME as usize);
     info!(".ekernel [{:#x}, {:#x})", skernel as usize, ekernel as usize);
     debug!(".rodata [{:#x}, {:#x})", srodata as usize, erodata as usize);
     error!(".data [{:#x}, {:#x})", sdata as usize, edata as usize); 

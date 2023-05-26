@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use riscv::addr::page;
 use crate::memlayout::PHYSTOP;
-use crate::{print, println};
+use crate::{print, println, info};
 use crate::riscv::PGSZ;
 use crate::sync::spin::Spin;
 use crate::vm::PhyPageNum;
@@ -17,6 +17,15 @@ pub struct AllocerGuard{
 impl From <AllocerGuard> for usize {
     fn from(value: AllocerGuard) -> Self {
         value.pages.0
+    }
+}
+
+impl AllocerGuard {
+    fn new() -> Self{
+        Self { pages: 0.into() }
+    }
+    fn page_mut(&mut self,pages:AllocerGuard){
+        *self = pages
     }
 }
 
@@ -36,7 +45,9 @@ impl StackFrame {
     }
     pub fn init(&mut self,s:PhyPageNum,e:PhyPageNum) {
         self.current = s.into();
+        self.current = (self.current+PGSZ-1)/PGSZ * PGSZ;
         self.end = e.into();
+        //Fix(01):algin to 4096
     }
 
     pub fn alloc(&mut self) -> PhyPageNum {
@@ -72,8 +83,14 @@ impl FarmeAllocer {
     }
     pub fn page_alloc(&self) -> AllocerGuard{
         unsafe{
+            //clear
+            let page = self.allocer.lock().alloc();
+            let byte_arry = page.get_bytes_array();
+            for i in byte_arry{
+                *i = 0 ;
+            }
             AllocerGuard {
-                pages: self.allocer.lock().alloc(), 
+                pages: page, 
             }
         }
     }
@@ -99,9 +116,7 @@ impl FarmeAllocer {
 impl Drop for AllocerGuard {
     fn drop(&mut self){
        unsafe{
-        //println!("free:{:#x}",self.pages.0);
         FRAME_ALLOC.page_dealloc(self.pages);
-        //println!("free:{:#x}",self.pages.0)
        }
     }
 }

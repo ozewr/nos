@@ -125,7 +125,7 @@ UnSafeCell比较强大，它告诉编译器，即使存在不可变应用例如'
 ## day5
 
 实现了虚拟化
-
+'''
 src
 ├── batch.rs  
 ├── console.rs  
@@ -154,6 +154,7 @@ src
 │   └── trap.s  
 ├── utils.rs  
 └── vm.rs                            (new file)   
+'''
 
 主要添加的文件 ：
 
@@ -275,3 +276,10 @@ walk函数返回一个PhyPageNum数组，这个数组可以理解成一个页表
 定时器中断的实现是很简单的，但是需要向M模式请求，所以要用sbi_call
 由于riscv的机制定时器一次事件结束后需要设置下次事件，所以每次事件开始需要设置下一次定时器终端开始的事件，代码在ktrap部分，比较简单。
 
+
+##
+//Fix:Task_Manger switch_M.. Processor 成员函数
+
+
+//task.rs:238 从父程序执行exec的时候，不知道children的pid,比较难分配stack
+//给字进程分配stack和trameframe的页

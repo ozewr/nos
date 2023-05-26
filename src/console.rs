@@ -1,6 +1,5 @@
 #![allow(unused)]
 use core::panic;
-
 use crate::{sbi::consele_putchar, cpu::CPUS, riscv::{intr_off, intr_on},};
 use core::{fmt::{self,Write, Arguments},};
 
@@ -42,6 +41,9 @@ pub fn print(args: fmt::Arguments) {
     }
 }
 
+
+
+
 #[macro_export]
 macro_rules! print {
     ($fmt: literal $(, $($arg: tt)+)?) => {
@@ -59,28 +61,22 @@ macro_rules! println {
 #[macro_export]
 macro_rules! info {
     ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::console::print(format_args!(concat!("\x1b[34m[INFO]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
+        $crate::console::print(format_args!(concat!("\x1b[32m[INFO]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
     }
 }
 
 #[macro_export]
 macro_rules! debug {
     ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::console::print(format_args!(concat!("\x1b[32m[DEBUG]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
+        #[cfg(feature = "debug")]
+        $crate::console::print(format_args!(concat!("\x1b[34m[DEBUG]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
     }
 }
 
 #[macro_export]
 macro_rules! error {
     ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::console::print(format_args!(concat!("\x1b[31m[DEBUG]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
+        #[cfg(feature = "debug")]
+        $crate::console::print(format_args!(concat!("\x1b[31m[ERROR]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
     }
 }
-
-// #[panic_handler]
-// fn panic(info: &panic::PanicInfo<'_>) -> ! {
-//     //PTCR.locking.store(false, Ordering::Relaxed);
-//     crate::println!("{}", info);
-//     //PTCR.panicked.store(true, Ordering::Release);
-//     loop {}
-// }

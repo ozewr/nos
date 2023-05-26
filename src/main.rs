@@ -4,47 +4,49 @@
 #![allow(unused)]
 #![feature(alloc_error_handler)]
 extern crate alloc;
-
+extern crate xmas_elf;
 //mod 
 mod sbi;        mod console;    mod lang_items;
 mod sync;       mod cpu;        mod utils;
 mod riscv;      mod thread;     mod trap;
-mod syscall;    mod batch;      mod kalloc;
+mod syscall;    mod kalloc;
 mod memlayout;  mod vm;         mod page_alloc;
+mod filesystem; mod config;
+mod task;
 use core::{
     arch::global_asm,
     arch::asm, usize, cell::UnsafeCell,
 };
 use alloc::boxed::Box;
+use filesystem::BLOCK_DEVICE;
+//use easy_fs::block_cache::{self, block_cache};
 use ::riscv::asm;
+use trap::usertarpret;
 use vm::PageTable;
 use crate::{
     riscv::{r_tp, intr_get, intr_on},
     sbi::shutdown,
-    thread::thread_start, utils::print_info, page_alloc::{FRAME_ALLOC, AllocerGuard}, 
+    thread::thread_start, utils::print_info, page_alloc::{FRAME_ALLOC, AllocerGuard, FarmeAllocer}, 
     vm::PhyPageNum,
     sync::spin::Spin,
-    vm::PGTBIT, trap::ktrap,
+    vm::PGTBIT, trap::ktrap, filesystem::{inode::ROOT_INODE, block_device_test, fs}, task::parse_elf,
 };
 
 global_asm!(include_str!("entry.s"));
-global_asm!(include_str!("link_app.s"));
 
 #[no_mangle]
 pub fn rust_main() -> ! {
     utils::clear_bss();
     thread_start();
-    intr_on();
+
     let cpuid :usize =r_tp();
     let mut pagetable :PageTable;
     if cpuid == 0 {
+        print_info();
         println!("hart {} is botting",cpuid);
         trap::ktrap_init();//trap init
         ktrap::timerinit();
-        //unsafe{asm!("ebreak");}
-        if (intr_get() != false){
-            info!("enable")
-        }
+        
         kalloc::init_heap();//kernel heap init
         
         //page alloc init and kvm install
@@ -52,19 +54,44 @@ pub fn rust_main() -> ! {
         pagetable = PageTable::new();
         vm::kvmmake(&mut pagetable);
         PGTBIT.set_bit(pagetable.as_satp());
+        PGTBIT.set_root(pagetable.root.0);
         pgtbl_install(cpuid);
-        if (intr_get() != false){
-            print!("enable")
-        }
         
+        // task::manager::init();
+        // task::runner::run_task();
+        let last_page:usize = PGTBIT.root_addr();
+        //block_device_test();
+        fs_ls();
+        task::manager::init();
+        task::manager::runner();
+        // let page = FRAME_ALLOC.page_alloc();
+        // info!("page alloc before syscall {:#x}",page.pages.0);
+        // task::task
+        //task::runner::run_task();
     }else {
         println!("hart {} is botting",cpuid);
         trap::ktrap_init();
         pgtbl_install(cpuid);
     }
     intr_on();
+    //usertarpret();
+    //task::runner::run_task();
     loop {}
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 fn pgtbl_install(cpuid :usize){
     loop {
@@ -79,4 +106,13 @@ fn pgtbl_install(cpuid :usize){
     println!("---hart {} pgtbl install ok---",cpuid);
 }
 
+use crate::filesystem::inode::open_file;
+use crate::filesystem::inode::READONLY;
+fn fs_ls(){
+    for s in ROOT_INODE.ls(){
+        info!("ls : {}",s);
+    }
+    let mut read_buffer = [0u8; 512];
+    let block_device = BLOCK_DEVICE.clone();
+}
 

@@ -27,7 +27,7 @@ impl<T> Spin<T> {
         Spin{
             locked:AtomicPtr::new(ptr::null_mut()),
             data:UnsafeCell::new(value),
-            name:name,
+            name,
         }
     }
 

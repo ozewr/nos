@@ -1,15 +1,17 @@
+use alloc::string::String;
 use::alloc::vec::Vec;
-use riscv::register::stvec;
-use riscv::register::satp;
-use crate::riscv::sfence_vma;
+use riscv::{addr::page,register::{stvec,satp}};
+use crate::{error,kstack,info,debug, memlayout::{TRAPFRAME, KERNEL_STACK_SIZE}};
+use crate::memlayout::{MMIO,NPROC,PTE_U,TRAMPOLINE};
+use crate::riscv::{sfence_vma,PGSZ};
 use crate::{sync::spin::Spin, memlayout::{PA_WIDTH_SV39,VA_WIDTH_SV39, PPN_SV39, VPN_SV39, PTE_V, PHYSTOP, MAXVA, PTE_A, KERNBASE, PTE_R, PTE_X, PTE_W}, page_alloc::{AllocerGuard, FRAME_ALLOC}, println};
-use core::{sync::atomic::{AtomicUsize,AtomicPtr}, usize};
-use crate::riscv::PGSZ;
 use crate::kalloc::HEAP_SPACE;
-use crate::debug;
+use core::{sync::atomic::{AtomicUsize,AtomicPtr}, usize};
+
 
 pub static PGTBIT:PageTableBit = PageTableBit{
-    pagetable:Spin::new(None, "pagetable_bit")
+    pagetable:Spin::new(None, "pagetable_bit"),
+    root:Spin::new(0,"pgtbl_root")
 };
 
 #[derive(Clone,Copy,Ord,PartialEq, PartialOrd,Eq)]
@@ -26,7 +28,7 @@ pub struct  VirPageNum(pub usize);
 // pub struct PageTableEntry(pub PhyPageNum);
 
 pub struct PageTable{
-    root:PhyPageNum,
+    pub root:PhyPageNum,
     pagetable:Vec<AllocerGuard>,
 }
 
@@ -122,8 +124,7 @@ impl PhyPageNum {
     pub fn get_mut<T>(&self) -> &'static mut T{
         let pa :usize = self.clone().into();
         let pa :PhyAddr= pa.into();
-        unsafe{
-            println!("get_mut:{:#x}",pa.0);  
+        unsafe{ 
             (pa.0 as *mut T).as_mut().unwrap()
         }
     }
@@ -132,6 +133,13 @@ impl PhyPageNum {
         self.0 & PTE_V != 0
     } 
 
+    pub fn as_satp(&self) -> usize{
+        let addr:usize = self.0;
+        let mut bits:usize = 0;
+        let sv_39:usize =8;
+        bits = ( sv_39 << 60) | (addr >> 12);
+        bits
+    }
 }
 
 impl PageTable{
@@ -146,22 +154,34 @@ impl PageTable{
         }
     }
 
+    pub fn create(root :usize) -> Self{
+        let mut v : Vec<AllocerGuard> = Vec::new();
+        Self { 
+            root:PhyPageNum(root), 
+            pagetable: v 
+        }
+    }
+
+    pub fn save_page(&mut self,page:AllocerGuard){
+        self.pagetable.push(page);
+    }
+
     pub fn mappages(&mut self,va:VirAddr,pa:PhyAddr,size:usize,perm : usize) -> bool{
         if (size == 0){
             panic!("map error size = 0")
         }
         let mut a: VirPageNum = va.round_down();
-        let mut last:VirAddr = (va.0+size).into();
+        let mut last:VirAddr = (va.0+size-1).into();
         let mut last: VirPageNum = last.round_down();
 
         let mut a :usize = a.into();
         let mut last:usize = last.into();
-
         let mut pa :usize = pa.0;
         loop{
             let mut pgtbl_arry:&mut [PhyPageNum] = self.root.get_pte_array();
             let mut pagetable:&mut [PhyPageNum] = self.walk(a, true,pgtbl_arry).unwrap();
             let idx = (a >> (12+0)) & 0x1ff;
+
             let pte: PhyPageNum = pagetable[idx];
             
             if (pte).is_v(){
@@ -214,6 +234,24 @@ impl PageTable{
         Some(pgtbl_arry)
     } 
 
+    pub fn walk_addr(&mut self,va:usize) -> Option<usize>{
+            let pgtbl_arry:&mut PhyPageNum;
+            if va >MAXVA{
+                return None;
+            }else {
+                let mut pgtbl_arry:&mut [PhyPageNum] = self.root.get_pte_array();
+                let pagetable = self.walk(va, false, pgtbl_arry).unwrap();
+                let idx = (va >> (12)) & 0x1ff;
+                let pte: PhyPageNum = pagetable[idx];
+                let addr: usize = ((pte.0 >>10)<<12);
+                if (pte).is_v(){
+                    return Some(addr);
+                }else {
+                    return None;
+                }
+            }
+    }   
+
     pub fn kvmmap(&mut self,va:VirAddr,pa:PhyAddr,size:usize,perm : usize){
         if (!self.mappages(va, pa, size, perm)){
             panic!("kvmmap")
@@ -227,6 +265,47 @@ impl PageTable{
         bits = ( sv_39 << 60) | (addr >> 12);
         bits
     }
+
+    pub fn map_proc_stacks(&mut self){
+        for i in 0..NPROC{
+            let gurd = FRAME_ALLOC.page_alloc();
+            let pa = gurd.pages.0;
+            self.pagetable.push(gurd);
+            
+            let va:usize = kstack!(i);
+            //let va:usize = va.into();
+            //info!(" kstack is {:x}",va);
+            self.mappages(
+                va.into(), 
+                pa.into(), 
+                KERNEL_STACK_SIZE, 
+                PTE_R|PTE_W|PTE_X);
+        }
+    }
+
+    pub fn translated_str(&mut self,ptr: *const u8) -> String{
+        let mut string = String::new();
+        info!("addr {:#x}" , ptr as usize);
+        let mut va = ptr as usize;
+        let mut pa = self.walk_addr(va).unwrap() + va%PGSZ;
+        info!("addr {:#x}" ,pa);
+        loop{
+            // self.walk_addr(va);
+            let ch: u8 = *PhyPageNum(pa).get_mut();
+            if ch == 0 {
+                break;
+            }
+            if ch as char == '/'{
+                pa+=1;
+                continue;
+            }
+            string.push(ch as char);
+            pa += 1;
+        }
+        string
+    }
+
+
 }
 
 pub fn kvmmake(pagetable:&mut PageTable) ->&mut PageTable{
@@ -239,7 +318,16 @@ pub fn kvmmake(pagetable:&mut PageTable) ->&mut PageTable{
         fn edata();
         fn ekernel();
         fn skernel();
+        fn trampoline();
     }
+    // map block_dvrice
+    pagetable.mappages(
+        MMIO.into(),
+        MMIO.into(),
+        PGSZ, 
+        PTE_R | PTE_W 
+    );
+    // map kernel base 
     pagetable.mappages(
         KERNBASE.into(),
         KERNBASE.into(),
@@ -248,11 +336,19 @@ pub fn kvmmake(pagetable:&mut PageTable) ->&mut PageTable{
     );
     // etext remap so +PGSZ
     pagetable.mappages(
-        ((etext as usize)+PGSZ).into(),
-        ((etext as usize)+PGSZ).into(),
+        ((etext as usize)).into(),
+        ((etext as usize)).into(),
         PHYSTOP-(etext as usize), 
         PTE_R|PTE_X|PTE_W
     );
+    pagetable.mappages(
+        TRAMPOLINE.into(),
+        (trampoline as usize).into(), 
+        PGSZ, 
+        PTE_X|PTE_R);
+
+    //map 1-NPROC's stacks
+    pagetable.map_proc_stacks();
     pagetable
 }
 
@@ -266,6 +362,7 @@ pub fn kvminithart(pagetable:usize){
 
 pub struct PageTableBit{
     pagetable:Spin<Option<usize>>,
+    root:Spin<usize>,
 }
 
 impl PageTableBit {
@@ -282,5 +379,15 @@ impl PageTableBit {
         let pagetable_bit :Option<usize>;
         unsafe {pagetable_bit = *(self.pagetable.lock().spin().get_mut());}
         pagetable_bit    
+    }
+    pub fn root_addr(&self) -> usize {
+        unsafe {
+            *(self.root.lock())
+        }
+    }
+    pub fn set_root(&self,root:usize){
+        unsafe{
+            *(self.root.lock()) = root
+        }
     }
 }
