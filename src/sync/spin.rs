@@ -5,6 +5,7 @@ use core::{
     sync::atomic::{ Ordering},
 };
 use core::sync::atomic::{self, AtomicPtr};
+use crate::info;
 use crate::riscv::{intr_get, intr_off, intr_on};
 use crate::cpu::{IntrLock, CPUS, Cpu};
 use core::ops::{Deref, DerefMut, Drop};
@@ -36,6 +37,9 @@ impl<T> Spin<T> {
     }
     pub unsafe fn lock(&self)->SpinGuard<'_ ,T>{
         intr_off();
+        // if self.name == "initcode"{
+        //     info!("spin 41 lock");
+        // }
         let _intr_lock = CPUS.intr_lock();
         //intr_on();
         assert!(!self.holding(), "acquire {}", self.name);
@@ -83,7 +87,10 @@ impl<'a, T: 'a> SpinGuard<'a, T> {
 impl<'a, T: 'a> Drop for SpinGuard<'a, T> {
     fn drop(&mut self) {
         assert!(self.holding(), "release {}", self.spin.name);
-        self.spin.locked.store(ptr::null_mut(),Ordering::Relaxed);
+        // if self.spin.name == "initcode"{
+        //     info!("spin 88 unlock");
+        // }
+        self.spin.locked.store(ptr::null_mut(),Ordering::Release);
     }
 }
 

@@ -1,12 +1,14 @@
 #![allow(unused)]
 use core::arch::asm;
-use core::option;
+use core::{option, task};
 use core::{cell::UnsafeCell, ops::Drop};
 use crate::sync::UPSafeCell;
+use crate::sync::spin::SpinGuard;
+use crate::task::{switch, __switch};
 use crate::{array, info, println};
 use crate::riscv::{intr_get, intr_off, intr_on};
 pub const NCPU:usize = 3;
-use crate::task::task::TaskControlBlock;
+use crate::task::task::{TaskControlBlock, TcbOut};
 pub static CPUS :Cpus = Cpus::new();
 use alloc::sync::Arc;
 use alloc::boxed::Box;
@@ -31,11 +33,50 @@ pub struct Context {
     pub s10: usize,
     pub s11: usize,
 }
+
+impl Context {
+    pub const fn new() -> Self {
+        Self {
+            ra: 0,
+            sp: 0,
+            s0: 0,
+            s1: 0,
+            s2: 0,
+            s3: 0,
+            s4: 0,
+            s5: 0,
+            s6: 0,
+            s7: 0,
+            s8: 0,
+            s9: 0,
+            s10: 0,
+            s11: 0,
+        }
+    }
+    pub fn write_zero(&mut self) {
+        self.ra = 0;
+        self.sp = 0;
+        self.s0 = 0;
+        self.s1 = 0;
+        self.s2 = 0;
+        self.s3 = 0;
+        self.s4 = 0;
+        self.s5 = 0;
+        self.s6 = 0;
+        self.s7 = 0;
+        self.s8 = 0;
+        self.s9 = 0;
+        self.s10 = 0;
+        self.s11 = 0;
+    }
+}
+
 pub struct Cpu{
     pub noff:UnsafeCell<usize>,
     pub intena:bool,
+    //pub task_lock:Option<SpinGuard<'static,TcbOut>>,
     pub task : Option<Arc<TaskControlBlock>>,
-    pub context: Option<Context>,
+    pub context: Context,
 }
 pub struct  Cpus(
     [UnsafeCell<Cpu>; NCPU]
@@ -51,10 +92,17 @@ impl Cpu {
         Self{
             noff:UnsafeCell::new(0),
             intena:false,
+            //task_lock:None,
             task:None,
-            context:None,
+            context:Context::new(),
         }
     }
+
+    // unsafe fn get_task(&mut self) -> Option<Arc<TaskControlBlock>>{
+    //     let task = self.task;
+    //     self.task = None;
+    //     task
+    // }
 
     unsafe fn locked(&mut self, old:bool) -> IntrLock {
         intr_off();
@@ -83,9 +131,11 @@ impl Cpu {
         }
 
     }
-    // pub fn task_ref(&self) -> Arc<TaskControlBlock>{
-    //     self.task.unwrap().as_ref()
-    // }
+    pub unsafe fn sched<'a>(&mut self, ctx :*mut Context){
+        let ina = self.intena;
+        __switch(ctx, &self.context);
+        self.intena = ina;
+    }
 }
 
 
@@ -110,6 +160,12 @@ impl Cpus {
             let c = self.my_cpu();
             (*c).task.as_ref()
         }
+    }
+
+    pub fn take_task(&self) -> Option<Arc<TaskControlBlock>>{
+        let _intr_lock = self.intr_lock();
+        let c = unsafe { self.my_cpu() };
+        c.task.take()
     }
     pub fn intr_lock(&self) -> IntrLock {
         let old = intr_get();

@@ -58,39 +58,40 @@ impl VirtIOBlock {
 // }
 impl Hal for VirtioHal {
 
-    fn dma_alloc(pages: usize) -> virtio_drivers::PhysAddr {
+    fn dma_alloc(pages: usize) -> usize {
         let mut addr_base:usize = 0;
         for i in 0..pages {
             let gurd:AllocerGuard;
             gurd = FRAME_ALLOC.page_alloc();
             if i == 0 {
                 addr_base = gurd.pages.0;
+                //info!("addr_base {:#x}",addr_base);
             }
             unsafe {
-                //info!("gurd {:#x}",gurd.pages.0);
                 QUEUE_FRAMES.lock().push(gurd);
             }          
         }
         addr_base
     }
-    fn dma_dealloc(paddr: virtio_drivers::PhysAddr, pages: usize) -> i32 {
+    fn dma_dealloc(paddr: usize, pages: usize) -> i32 {
         let mut pa = paddr;
         for _  in 0..pages {
+            println!("dealloc !!!!!");
             FRAME_ALLOC.page_dealloc(pa.into());
-            pa += PGSZ
+            pa += PGSZ;
         }
         0
     }
-    fn phys_to_virt(paddr: virtio_drivers::PhysAddr) -> virtio_drivers::VirtAddr {
+    fn phys_to_virt(paddr: usize) -> usize {
         paddr
     }
 
-    fn virt_to_phys(vaddr: virtio_drivers::VirtAddr) -> virtio_drivers::PhysAddr {
+    fn virt_to_phys(vaddr: usize) -> usize {
+        let offset = vaddr % PGSZ;
         let mut pagetable = PageTable::create(PGTBIT.root_addr());
-        //println!("runhere ");
         if let Some(pa) = pagetable.walk_addr(vaddr){
-            println!("runhere ");
-            vaddr
+            //info!("pa is {:#x}",pa+offset);
+            (pa + offset)
         }else {
             panic!("this addr is not map or can't use")   
         } 

@@ -7,23 +7,18 @@ use fs::*;
 use alloc::sync::Arc;
 use easy_fs::BlockDevice;
 use fs::QUEUE_FRAMES;
-use crate::info;
+use crate::{info, page_alloc::UserBuffer};
 pub trait File: Send + Sync {
         fn readable(&self) -> bool;
         fn writable(&self) -> bool;
         
-        fn read(&self ,buf:&mut [u8]) -> usize ;
-        fn write(&self ,buf:&[u8]) -> usize;
+        fn read(&self ,buf: UserBuffer) -> usize ;
+        fn write(&self ,buf:UserBuffer) -> usize;
 }   
 
 lazy_static! {
         pub static ref BLOCK_DEVICE: Arc<dyn BlockDevice> = Arc::new(BlockDeviceImpl::new());
 }
-
-//pub static BLK_DEVICE:Arc<dyn BlockDevice> = Arc::new(BlockDeviceImpl::new()); 
-
-//static ref BLOCK_DEVICE
-
 
 #[allow(unused)]
 pub fn block_device_test() {

@@ -2,6 +2,8 @@ use core::u8;
 use easy_fs::Inode;
 use easy_fs::EasyFileSystem;
 use crate::info;
+use crate::page_alloc::UserBuffer;
+use crate::println;
 use crate::riscv::PGSZ;
 use crate::riscv::intr_on;
 use crate::sync::spin::Spin;
@@ -73,16 +75,15 @@ impl OSinode {
         let mut rl_inode = unsafe {self.rl_inode.lock()};
         let mut buf = [0u8;512];
         let mut v :Vec<u8> = Vec::new();
-        let len = rl_inode.inode.read_at(rl_inode.offset, &mut buf);
         loop {
             unsafe {
-            let len = rl_inode.inode.read_at(rl_inode.offset, &mut buf);
-            if len == 0{
-                info!("len:{}",rl_inode.offset);
-                break;
-            }
-            rl_inode.offset += len;
-            v.extend_from_slice(&buf[..len]);
+                let len = rl_inode.inode.read_at(rl_inode.offset, &mut buf);
+                if len == 0{
+                    println!("len:{}",rl_inode.offset);
+                    break;
+                }
+                rl_inode.offset += len;
+                v.extend_from_slice(&buf[..len]);
             }
         }
         v
@@ -97,21 +98,32 @@ impl File for OSinode {
     fn writable(&self) -> bool{
         self.writable
     }
-    fn read(&self ,buf:&mut [u8]) -> usize{
+    fn read(&self ,mut buf:UserBuffer) -> usize{
         let mut rl_inode = unsafe {self.rl_inode.lock()};
-        let read_size = unsafe {
-            rl_inode.inode.read_at(rl_inode.offset, buf)
-        };
-        read_size
+        
+        let mut total_size = 0usize;
+        for slice in buf.buffers.iter_mut() {
+            let read_size = rl_inode.inode.read_at(rl_inode.offset, *slice);
+            if read_size == 0 {
+                break;
+            }
+            rl_inode.offset += read_size;
+            total_size += read_size;
+        }
+        total_size
     }
-    fn write(&self ,buf:&[u8]) -> usize {
+    fn write(&self ,buf:UserBuffer) -> usize {
         let mut rl_inode = unsafe {
             self.rl_inode.lock()
         };
-        let write_size = unsafe {
-            rl_inode.inode.write_at(rl_inode.offset, buf)
-        };
-        write_size
+        let mut total_size = 0usize;
+        for slice in buf.buffers.iter() {
+            let write_size = rl_inode.inode.write_at(rl_inode.offset, *slice);
+            assert_eq!(write_size,slice.len());
+            rl_inode.offset += write_size;
+            total_size += write_size;
+        }
+        total_size
     }
 }
 

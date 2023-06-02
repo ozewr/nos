@@ -278,8 +278,7 @@ walk函数返回一个PhyPageNum数组，这个数组可以理解成一个页表
 
 
 ##
-//Fix:Task_Manger switch_M.. Processor 成员函数
+接下来是waitpid和exit
+exit 的时候需要回收pid（drop时回收？）
 
-
-//task.rs:238 从父程序执行exec的时候，不知道children的pid,比较难分配stack
-//给字进程分配stack和trameframe的页
+在exec的read all里面栈空间就已经改变了，战时不知道为什么。

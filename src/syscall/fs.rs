@@ -1,14 +1,19 @@
 use core::{slice,str, task};
 
-use crate::{print, cpu::CPUS, filesystem::inode::{open_file, READONLY, self}};
+use crate::{print, cpu::CPUS, filesystem::inode::{open_file, READONLY, self}, riscv::PGSZ, println, info, task::exit};
 
 
 const FD_STDOUT :usize = 1 ;
 pub fn sys_write(fd:usize,buf: *const u8,len:usize) -> isize {
     match fd {
         FD_STDOUT => {
+            let proc = CPUS.my_proc().unwrap();
+            let va = buf as usize;
+            let offset = va % PGSZ;
+            let pa_base  = proc.inner_mut().pagetable().walk_addr(va).unwrap();
+            let pa = pa_base+offset;
             let slice = unsafe{
-                core::slice::from_raw_parts(buf,len)
+                core::slice::from_raw_parts(pa as *const _,len)
             };
             let str = core::str::from_utf8(slice).unwrap();
             print!("{}",str);
@@ -20,10 +25,11 @@ pub fn sys_write(fd:usize,buf: *const u8,len:usize) -> isize {
     }
 }
 
-pub fn sys_exit(xstate:i32) -> isize{
-    print!("exit with code {}",xstate);
-    panic!()
-}
+// pub fn sys_exit(xstate:i32) -> isize{
+//     //print!("exit with code {}",xstate);
+//     exit(xstate);
+//     panic!()
+// }
 
 pub fn sys_open(path :*const u8,flags:usize) -> isize {
     let task = unsafe {CPUS.my_cpu().task.as_mut().unwrap()};

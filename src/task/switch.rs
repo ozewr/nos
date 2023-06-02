@@ -1,7 +1,7 @@
-use super::task::Context;
+use crate::cpu::Context;
 use core::arch::asm;
 
-pub extern "C" fn swtch(old: &mut Context, new: &Context) {
+pub extern "C" fn swtch(old: *mut Context, new: *const Context) {
     unsafe {
         asm!(
             "sd ra, 0({0})",
@@ -33,6 +33,7 @@ pub extern "C" fn swtch(old: &mut Context, new: &Context) {
             "ld s9, 88({1})",
             "ld s10, 96({1})",
             "ld s11, 104({1})",
+            "ret",
             in(reg) old,
             in(reg) new
         );

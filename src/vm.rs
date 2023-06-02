@@ -1,7 +1,7 @@
 use alloc::string::String;
 use::alloc::vec::Vec;
 use riscv::{addr::page,register::{stvec,satp}};
-use crate::{error,kstack,info,debug, memlayout::{TRAPFRAME, KERNEL_STACK_SIZE}};
+use crate::{error,kstack,info,debug, memlayout::{TRAPFRAME, KERNEL_STACK_SIZE}, console::Ptcr};
 use crate::memlayout::{MMIO,NPROC,PTE_U,TRAMPOLINE};
 use crate::riscv::{sfence_vma,PGSZ};
 use crate::{sync::spin::Spin, memlayout::{PA_WIDTH_SV39,VA_WIDTH_SV39, PPN_SV39, VPN_SV39, PTE_V, PHYSTOP, MAXVA, PTE_A, KERNBASE, PTE_R, PTE_X, PTE_W}, page_alloc::{AllocerGuard, FRAME_ALLOC}, println};
@@ -29,7 +29,8 @@ pub struct  VirPageNum(pub usize);
 
 pub struct PageTable{
     pub root:PhyPageNum,
-    pagetable:Vec<AllocerGuard>,
+    pub pagetable:Vec<AllocerGuard>,
+    pub data:Vec<usize>
 }
 
 
@@ -151,6 +152,7 @@ impl PageTable{
         Self { 
             root: page,
             pagetable: v,
+            data:Vec::new()
         }
     }
 
@@ -158,7 +160,8 @@ impl PageTable{
         let mut v : Vec<AllocerGuard> = Vec::new();
         Self { 
             root:PhyPageNum(root), 
-            pagetable: v 
+            pagetable: v ,
+            data: Vec::new()
         }
     }
 
@@ -185,6 +188,7 @@ impl PageTable{
             let pte: PhyPageNum = pagetable[idx];
             
             if (pte).is_v(){
+                info!("vm.rs: 191 {:#x}",a);
                 panic!("mappages: remap")
             }
             let pte_temp:PhyPageNum = PhyPageNum((((pa >>12 ) <<10) | perm | PTE_V)); //pa2pte
@@ -240,17 +244,38 @@ impl PageTable{
                 return None;
             }else {
                 let mut pgtbl_arry:&mut [PhyPageNum] = self.root.get_pte_array();
-                let pagetable = self.walk(va, false, pgtbl_arry).unwrap();
-                let idx = (va >> (12)) & 0x1ff;
-                let pte: PhyPageNum = pagetable[idx];
-                let addr: usize = ((pte.0 >>10)<<12);
-                if (pte).is_v(){
-                    return Some(addr);
+                if let Some(pagetable) = self.walk(va, false, pgtbl_arry){
+                    let idx = (va >> (12)) & 0x1ff;
+                    let pte: PhyPageNum = pagetable[idx];
+                    let addr: usize = ((pte.0 >>10)<<12);
+                    if (pte).is_v(){
+                        return Some(addr);
+                    }else {
+                        return None;
+                    }
                 }else {
                     return None;
                 }
             }
     }   
+    pub fn walk_perm(&mut self,va:usize) -> Option<usize>{
+        if va >MAXVA{
+            return None;
+        }else {
+            let mut pgtbl_arry:&mut [PhyPageNum] = self.root.get_pte_array();
+            if let Some(pagetable) = self.walk(va, false, pgtbl_arry){
+                let idx = (va >> (12)) & 0x1ff;
+                let pte: PhyPageNum = pagetable[idx];
+                if (pte).is_v(){
+                    return Some(pte.0 & 1023);
+                }else {
+                    return None;
+                }
+            }else {
+                return None;
+            }
+        }
+    }
 
     pub fn kvmmap(&mut self,va:VirAddr,pa:PhyAddr,size:usize,perm : usize){
         if (!self.mappages(va, pa, size, perm)){
@@ -268,27 +293,33 @@ impl PageTable{
 
     pub fn map_proc_stacks(&mut self){
         for i in 0..NPROC{
-            let gurd = FRAME_ALLOC.page_alloc();
-            let pa = gurd.pages.0;
-            self.pagetable.push(gurd);
-            
-            let va:usize = kstack!(i);
-            //let va:usize = va.into();
-            //info!(" kstack is {:x}",va);
-            self.mappages(
-                va.into(), 
-                pa.into(), 
-                KERNEL_STACK_SIZE, 
-                PTE_R|PTE_W|PTE_X);
+            let mut va:usize = kstack!(i);
+            loop {
+                let gurd = FRAME_ALLOC.page_alloc();
+                let pa = gurd.pages.0;
+                self.save_page(gurd);
+                //let mut va:usize = kstack!(i);
+                if va >= kstack!(i)+ KERNEL_STACK_SIZE{
+                    break;
+                }
+
+                info!("vm 305 {:#x}",va); 
+                self.mappages(
+                    va.into(), 
+                    pa.into(), 
+                    PGSZ, 
+                    PTE_R|PTE_W|PTE_X);
+                va += PGSZ;
+            }
         }
+        //let a = self.walk_addr(0x3fffffcb30).unwrap();
+        //info!("pa of stack {:#x}",a);
     }
 
     pub fn translated_str(&mut self,ptr: *const u8) -> String{
         let mut string = String::new();
-        info!("addr {:#x}" , ptr as usize);
         let mut va = ptr as usize;
-        let mut pa = self.walk_addr(va).unwrap() + va%PGSZ;
-        info!("addr {:#x}" ,pa);
+        let mut pa = self.walk_addr(va).unwrap() + va % PGSZ;
         loop{
             // self.walk_addr(va);
             let ch: u8 = *PhyPageNum(pa).get_mut();
@@ -303,6 +334,47 @@ impl PageTable{
             pa += 1;
         }
         string
+    }
+    //dont konwn how to use 
+    pub fn translated_byte_buffer(&mut self,ptr: *const u8 ,len :usize) -> Vec<&'static mut [u8]>{
+        let mut start = ptr as usize;
+        let end = start + len;
+        let mut v = Vec::new();
+        while start < end {
+            let start_va = VirAddr(start).round_down();
+            let mut va:usize = start_va.into();
+            let ppn = PhyPageNum(self.walk_addr(va).unwrap());
+            va = va+PGSZ;
+            let mut end_va = va;
+            end_va = end_va.min(end);
+
+            if end_va & (PGSZ -1) == 0 {
+                v.push(&mut ppn.get_bytes_array()[(start_va.0 &(PGSZ -1))..]);
+            }else {
+                v.push(&mut ppn.get_bytes_array()[(start_va.0 & (PGSZ-1))..(end_va & (PGSZ-1))]);
+            }
+            start = end_va;
+        }
+        v
+    }
+
+    pub fn tasnlate_refmut<T>(&mut self, ptr:*mut T) -> &'static mut T{
+        let va = ptr as usize;
+        let offset = va % PGSZ;
+        let pa_base = self.walk_addr(va).unwrap();
+        let pa = PhyPageNum(pa_base+offset);
+        pa.get_mut()
+    }
+    pub fn tranlate_buf(&mut self ,ptr: *const u8) -> &[u8]{
+        let va = ptr as usize;
+        let offset = va % PGSZ;
+        let pa_base = self.walk_addr(va).unwrap();
+        let pa = PhyPageNum(pa_base+offset);
+        pa.get_bytes_array()
+    }
+
+    pub fn clear(&mut self){
+        self.pagetable.clear();
     }
 
 

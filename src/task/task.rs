@@ -9,11 +9,13 @@ use alloc::string::String;
 use alloc::sync::{self, Weak};
 use alloc::vec::{Vec, self};
 use riscv::addr::Page;
-use crate::memlayout::{PTE_U, PTE_R, PTE_X, TRAPFRAME, TRAMPOLINE, PTE_W};
+use crate::memlayout::{PTE_U, PTE_R, PTE_X, TRAPFRAME, TRAMPOLINE, PTE_W, KERNEL_STACK_SIZE, USERSTACK_TOP, USERSTACK};
 use crate::riscv::PGSZ;
 use crate::sync::UPSafeCell;
 use crate::sync::spin::{Spin, SpinGuard};
-use crate::{PageTable, info};
+use crate::task::{map_user_stack, map_user_stack_fork};
+use crate::trap::usertarpret;
+use crate::{PageTable, info, print, println};
 use crate::page_alloc::AllocerGuard;
 use crate::vm::{PhyPageNum};
 use crate::FRAME_ALLOC;
@@ -21,7 +23,7 @@ use lazy_static::*;
 use crate::kstack;
 use alloc::{sync::Arc};
 use crate::filesystem::File;
-
+use crate::cpu::{Context, CPUS};
 use super::manager::TASKMANGER;
 use super::parse_elf;
 pub static INITCODE: [u8; 52] = [
@@ -31,71 +33,13 @@ pub static INITCODE: [u8; 52] = [
     0x00, 0x00, 0x00, 0x00,
 ];
 #[derive(Clone, Copy)]
+#[derive(PartialEq, Eq)]
 pub enum State {
     Run = 0,
     Ready,
     Sleep,
     Zombie,
 }
-
-#[derive(Clone, Copy, Debug)]
-#[repr(C)]
-pub struct Context {
-    pub ra: usize,
-    pub sp: usize,
-
-    // callee-saved
-    pub s0: usize,
-    pub s1: usize,
-    pub s2: usize,
-    pub s3: usize,
-    pub s4: usize,
-    pub s5: usize,
-    pub s6: usize,
-    pub s7: usize,
-    pub s8: usize,
-    pub s9: usize,
-    pub s10: usize,
-    pub s11: usize,
-}
-
-impl Context {
-    pub const fn new() -> Self {
-        Self {
-            ra: 0,
-            sp: 0,
-            s0: 0,
-            s1: 0,
-            s2: 0,
-            s3: 0,
-            s4: 0,
-            s5: 0,
-            s6: 0,
-            s7: 0,
-            s8: 0,
-            s9: 0,
-            s10: 0,
-            s11: 0,
-        }
-    }
-    pub fn write_zero(&mut self) {
-        self.ra = 0;
-        self.sp = 0;
-        self.s0 = 0;
-        self.s1 = 0;
-        self.s2 = 0;
-        self.s3 = 0;
-        self.s4 = 0;
-        self.s5 = 0;
-        self.s6 = 0;
-        self.s7 = 0;
-        self.s8 = 0;
-        self.s9 = 0;
-        self.s10 = 0;
-        self.s11 = 0;
-    }
-}
-
 
 
 #[derive(Clone, Copy, Default)] 
@@ -112,7 +56,7 @@ pub struct TrapFrame {
     /*  64 */ pub tp: usize,
     /*  72 */ pub t0: usize,
     /*  80 */ pub t1: usize,
-              pub t2: usize,
+    /*  88 */ pub t2: usize,
     /*  96 */ pub s0: usize,
     /* 104 */ pub s1: usize,
     /* 112 */ pub a0: usize,
@@ -138,50 +82,6 @@ pub struct TrapFrame {
     /* 272 */ pub t5: usize,
     /* 280 */ pub t6: usize,
 }
-
-impl TrapFrame {
-    pub fn new() -> TrapFrame{
-        Self {  
-    /*   0 */ kernel_satp: 0, // kernel page table
-    /*   8 */  kernel_sp: 0, // top of process's kernel stack
-    /*  16 */  kernel_trap: 0, // usertrap()
-    /*  24 */  epc: 0, // saved user program counter
-    /*  32 */  kernel_hartid: 0, // saved kernel tp
-    /*  40 */  ra: 0,
-    /*  48 */  sp: 0,
-    /*  56 */  gp: 0,
-    /*  64 */  tp: 0,
-    /*  72 */  t0: 0,
-    /*  80 */  t1: 0,
-    /*  88 */  t2: 0,
-    /*  96 */  s0: 0,
-    /* 104 */  s1: 0,
-    /* 112 */  a0: 0,
-    /* 120 */  a1: 0,
-    /* 128 */  a2: 0,
-    /* 136 */  a3: 0,
-    /* 144 */  a4: 0,
-    /* 152 */  a5: 0,
-    /* 160 */  a6: 0,
-    /* 168 */  a7: 0,
-    /* 176 */  s2: 0,
-    /* 184 */  s3: 0,
-    /* 192 */  s4: 0,
-    /* 200 */  s5: 0,
-    /* 208 */  s6: 0,
-    /* 216 */  s7: 0,
-    /* 224 */  s8: 0,
-    /* 264 */  t4: 0,
-    /* 232 */  s9: 0,
-    /* 280 */  t6: 0,
-    /* 240 */  s10: 0,
-    /* 248 */  s11: 0,
-    /* 256 */  t3: 0,
-    /* 272 */  t5: 0,
-        }
-    }
-}
-
 pub struct TaskControlBlock{
     pub out_data: Spin<TcbOut>,
     pub inner: UPSafeCell<TcbInner>,
@@ -264,6 +164,7 @@ impl TcbInner {
     pub fn name(&mut self) -> String{
         self.name.clone()
     }
+
     // mut use after set_trapframe
     pub fn map_trap(&mut self){
         extern "C"{
@@ -296,7 +197,13 @@ impl TcbOut {
             pid: None 
         }
     }
-
+    pub fn is_zombie(&self) -> bool{
+        if self.state == State::Zombie {
+            true
+        }else {
+            false
+        }
+    }
     pub fn state(&self) -> State {
         self.state
     }
@@ -405,25 +312,23 @@ impl TaskControlBlock {
 
     pub fn fork(self: &Arc<TaskControlBlock>) -> Arc<TaskControlBlock>{
         let new_pid = unsafe {TASKMANGER.lock().alloc_pid().unwrap()};
-        //pagetable is same
-        //let mut new_pagetable = PageTable::new();
-        let mut new_pgtbl_ptr = Box::new(PageTable::new());
-        new_pgtbl_ptr.root = self.pagetable_root();
-        //pgtbl_ptr.root = 
-        // same trapframe but kstack is not same
-        let ppn = self.trapframe_usie();
-        let new_trapframe:&mut TrapFrame = PhyPageNum(ppn).get_mut();
-        //same name?
+        //pagetable is not same but pagetable's inner is same 
+        let mut new_pgtbl_ptr = Box::new(fork_pagetable(self.inner_mut().pagetable()));
+        //find new trapframe
+        let new_trapframe:&mut TrapFrame = PhyPageNum(new_pgtbl_ptr.walk_addr(TRAPFRAME).unwrap()).get_mut();
         let new_name = self.name();
         //state is runable 
         let new_state = State::Ready;
         //kstack is not same 
         let new_kstack = kstack!(new_pid);
         //same context 
-        let new_context  = self.inner_mut().context.clone();
-        //file is same ?
+        let mut new_context  = self.inner_mut().context.clone();
+        //FIX : new_context.ra = forkret();\n
+        new_context.ra = usertarpret as usize;
+        new_context.sp = kstack!(new_pid)+KERNEL_STACK_SIZE;
+        //new_context.sp = kstack!(new_pid)+PGSZ; 
+        //file is same 
         let mut new_files:Vec<Option<Arc<dyn File + Send + Sync>>> = Vec::new();
-
         for fd in self.inner_mut().files.iter(){
             if let Some(file) = fd {
                 new_files.push(Some(file.clone()));
@@ -443,23 +348,22 @@ impl TaskControlBlock {
         );
         new_tcb.inner_mut().parent = Some(Arc::downgrade(self));
         let new_tcb = Arc::new(new_tcb);
-        self.inner_mut().children.push(new_tcb.clone());
+        self.inner_mut().children.push(new_tcb.clone( ));
         new_tcb
     }
 
+
     pub fn exec(&self , elf_data:&[u8]){
         //find data and map
-        let mut pagetable = parse_elf(elf_data);
+        let mut elf:(PageTable,usize) = parse_elf(elf_data);
         //map trap_frame 
         let gurd = FRAME_ALLOC.page_alloc();
-        self.set_pagetable(Box::new(pagetable));
+        self.set_pagetable(Box::new(elf.0));
         self.new_set_trapframe(gurd);
         self.map_trap();
         //set this task to new task;
-        //self.pagetable = pagetable;
-        //set sepc
-        self.set_epc(0x0);
-        self.set_sp(PGSZ);
+        self.set_epc(elf.1);
+        self.set_sp(USERSTACK_TOP);
     }
 
     pub fn umap_task(){
@@ -483,6 +387,79 @@ impl TaskControlBlock {
             self.inner_mut().files.len()-1
         }}
     }
+    pub fn yielding(&self){
+        let mut lock = unsafe { self.out_data.lock() };
+        lock.state = State::Ready;
+        let mut inner = self.inner_mut();
+        let ctx = &mut inner.context as *mut Context;
+        drop(lock);
+        drop(inner);
+        unsafe{
+            CPUS.my_cpu().sched(ctx);
+        }
+    }
 }
 
+pub fn fork_pagetable(pagetable_old :&mut Box<PageTable>) -> PageTable{
+    let mut pagetable_new = PageTable::new();
+    let new_root = FRAME_ALLOC.page_alloc();
+    pagetable_new.root = new_root.pages;
+    pagetable_new.save_page(new_root);
 
+    let mut v:Vec<usize> = Vec::new();
+    for i in pagetable_old.data.iter(){
+        let addr = *i;
+        v.push(addr); 
+    }
+    for i in v.iter() {
+        let va = (*i);
+        //alloc and save page
+        //let mut va = *va;
+        let gurd = FRAME_ALLOC.page_alloc();
+        let pa = gurd.pages;
+        pagetable_new.save_page(gurd);
+        //find src and flags
+        let flags = pagetable_old.walk_perm(va).unwrap();
+        let old_pa = pagetable_old.walk_addr(va).unwrap();
+        let src_old = PhyPageNum(old_pa);
+        let dst_new = PhyPageNum(pa.0);
+        dst_new.get_bytes_array()
+            .copy_from_slice(src_old.get_bytes_array());
+        //map pages
+        pagetable_new.mappages(
+            va.into(), 
+            pa.0.into(),
+            PGSZ, 
+            PTE_U|PTE_X|PTE_R|PTE_W
+        );
+        //va += PGSZ;
+    }
+    //map traamlibe
+    extern "C"{
+        fn trampoline();
+    }
+    pagetable_new.mappages(
+        TRAMPOLINE.into(),
+        (trampoline as usize).into(), 
+        PGSZ, 
+        PTE_X | PTE_R
+    );
+    //map trapframe
+    let old_trapframe = PhyPageNum(pagetable_old.walk_addr(TRAPFRAME).unwrap());
+    let gurd = FRAME_ALLOC.page_alloc();
+    let new_trapframe = gurd.pages;
+    pagetable_new.save_page(gurd);
+    new_trapframe.get_bytes_array().copy_from_slice(old_trapframe.get_bytes_array());
+    
+    pagetable_new.mappages(
+        TRAPFRAME.into(),
+        new_trapframe.0.into(),
+        PGSZ,
+        PTE_W|PTE_R|PTE_X
+    );
+
+    //map stacks
+    //map_user_stack(&mut pagetable_new,USERSTACK, USERSTACK_TOP);
+    map_user_stack_fork(pagetable_old, &mut pagetable_new, USERSTACK,USERSTACK_TOP);
+    pagetable_new
+}

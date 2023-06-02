@@ -21,6 +21,7 @@ use alloc::boxed::Box;
 use filesystem::BLOCK_DEVICE;
 //use easy_fs::block_cache::{self, block_cache};
 use ::riscv::asm;
+use task::scheduler;
 use trap::usertarpret;
 use vm::PageTable;
 use crate::{
@@ -33,6 +34,7 @@ use crate::{
 };
 
 global_asm!(include_str!("entry.s"));
+
 
 #[no_mangle]
 pub fn rust_main() -> ! {
@@ -56,27 +58,19 @@ pub fn rust_main() -> ! {
         PGTBIT.set_bit(pagetable.as_satp());
         PGTBIT.set_root(pagetable.root.0);
         pgtbl_install(cpuid);
-        
         // task::manager::init();
         // task::runner::run_task();
         let last_page:usize = PGTBIT.root_addr();
-        //block_device_test();
         fs_ls();
         task::manager::init();
-        task::manager::runner();
-        // let page = FRAME_ALLOC.page_alloc();
-        // info!("page alloc before syscall {:#x}",page.pages.0);
-        // task::task
-        //task::runner::run_task();
+        //task::manager::runner();
     }else {
         println!("hart {} is botting",cpuid);
         trap::ktrap_init();
         pgtbl_install(cpuid);
     }
-    intr_on();
-    //usertarpret();
-    //task::runner::run_task();
-    loop {}
+    scheduler();
+    panic!("error can't run here");
 }
 
 
@@ -110,7 +104,7 @@ use crate::filesystem::inode::open_file;
 use crate::filesystem::inode::READONLY;
 fn fs_ls(){
     for s in ROOT_INODE.ls(){
-        info!("ls : {}",s);
+        println!("ls : {}",s);
     }
     let mut read_buffer = [0u8; 512];
     let block_device = BLOCK_DEVICE.clone();

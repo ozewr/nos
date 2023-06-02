@@ -5,7 +5,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::collections::VecDeque;
 use crate::cpu::CPUS;
-use crate::memlayout::TRAMPOLINE;
+use crate::memlayout::{TRAMPOLINE, KERNEL_STACK_SIZE};
 use crate::trap::usertarpret;
 use crate::{sync::spin::Spin, vm::{PageTable, PhyPageNum}, riscv::PGSZ, memlayout::{PTE_R, PTE_W, PTE_X, PTE_U}};
 use super::task::{TaskControlBlock, TrapFrame,INITCODE};
@@ -14,9 +14,9 @@ use crate::kstack;
 use crate::FRAME_ALLOC;
 use lazy_static::*;
 pub struct TaskManager{
-    task_store:VecDeque<TaskControlBlock>,
-    pids:Vec<usize>,
-    zombie_store:VecDeque<TaskControlBlock>,
+    pub task_store:VecDeque<Arc<TaskControlBlock>>,
+    pub pids:Vec<usize>,
+    pub zombie_store:VecDeque<Arc<TaskControlBlock>>,
 }
 
 lazy_static!{
@@ -36,12 +36,12 @@ impl TaskManager {
         }
     }
 
-    pub fn add_task(&mut self , tcb :TaskControlBlock){
+    pub fn add_task(&mut self , tcb :Arc<TaskControlBlock>){
         unsafe {self.task_store.push_back(tcb)};
     }
     
-    pub fn pop_front(&mut self) -> TaskControlBlock{
-        self.task_store.pop_front().unwrap()
+    pub fn pop_front(&mut self) -> Option<Arc<TaskControlBlock>>{
+        self.task_store.pop_front()
     }
 
     pub fn kill(&self,pid:usize){
@@ -50,6 +50,10 @@ impl TaskManager {
 
     pub fn free_pid(&self,pid :usize){
         todo!()//   check and pop pid 
+    }
+
+    pub fn free_task(&mut self , tcb:Arc<TaskControlBlock>){
+        self.zombie_store.push_back(tcb);
     }
     
     pub fn alloc_pid(&mut self) -> Option<usize> {
@@ -75,7 +79,7 @@ pub fn init_zero_task(){
     trapframe.epc = 0;
     trapframe.sp = PGSZ;
     task.set_kstack();
-    unsafe { TASKMANGER.lock().task_store.push_back(task) };
+    unsafe { TASKMANGER.lock().task_store.push_back(Arc::new(task)) };
 }
 
 pub fn crate_init(name:&str) -> Option<TaskControlBlock>{
@@ -85,13 +89,14 @@ pub fn crate_init(name:&str) -> Option<TaskControlBlock>{
         panic!("not init")
     }
     init_task.set_pid(pid);
+    init_task.inner_mut().context.ra = usertarpret as usize;
+    init_task.inner_mut().context.sp = kstack!(0) + PGSZ;
     //set pagetable
     let pgtbl_ptr = set_init_pagetable(INITCODE, PGSZ);
     init_task.set_pagetable(pgtbl_ptr);
     let gurd = FRAME_ALLOC.page_alloc();
     init_task.new_set_trapframe(gurd);
     init_task.map_trap();
-    //
     Some(init_task)
 }
 
@@ -121,7 +126,7 @@ pub fn init(){
 
 pub fn runner(){
     unsafe {
-        CPUS.my_cpu().task = Some(Arc::new(TASKMANGER.lock().pop_front()))
+        CPUS.my_cpu().task = TASKMANGER.lock().pop_front()
     }
-    //usertarpret()
+    usertarpret()
 }

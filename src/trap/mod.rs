@@ -1,5 +1,6 @@
 use core::{arch::global_asm,str};
 use crate::cpu::{CPUS, Cpus};
+use crate::filesystem::block_device_test;
 use crate::memlayout::{TRAMPOLINE, KERNEL_STACK_SIZE};
 use crate::riscv::{intr_on, intr_off, PGSZ, r_tp};
 use crate::syscall::syscall;
@@ -32,7 +33,7 @@ pub fn ktrap_init(){
 }
 
 #[no_mangle]
-pub fn usertarpret(){
+pub extern "C" fn usertarpret(){
     extern "C"{
         fn uservec();
         fn trampoline();
@@ -49,12 +50,11 @@ pub fn usertarpret(){
     let task = CPUS.my_proc().unwrap();
     let pid = task.pid();
     let trap_frame = task.get_trapframe();
-      
+
     trap_frame.kernel_satp = riscv::register::satp::read().bits();
     trap_frame.kernel_sp = kstack!(pid)+KERNEL_STACK_SIZE;
     trap_frame.kernel_trap = usertrap as usize;
     trap_frame.kernel_hartid = r_tp();
-
     unsafe {
         sstatus::set_spp(sstatus::SPP::User);
         sstatus::set_spie();
@@ -65,6 +65,7 @@ pub fn usertarpret(){
         trap_frame as *const _ as usize
     };
     let satp = task.pagetable_root().as_satp();
+    //println!("satp{:#x}",satp);
     let fn_0: usize = TRAMPOLINE + (userret as usize - trampoline as usize);
     unsafe {
         let fn_0: extern "C" fn(usize) -> ! = core::mem::transmute(fn_0);
@@ -81,28 +82,27 @@ pub fn usertrap(){
         panic!("not from user");
     }
     unsafe {stvec::write(kernelvec as usize , TrapMode::Direct);}
+    let task = CPUS.my_proc().unwrap();
+    let trapframe = task.get_trapframe();
+    trapframe.epc = sepc::read();
+    info!("pid {}",task.pid());
     match  scause::read().cause() {
         Trap::Exception(scause::Exception::UserEnvCall) => {
-            let task = CPUS.my_proc().unwrap();
-            //let trapframe = task.inner_mut().trapframe.as_mut().unwrap();
-            task.get_trapframe().epc+=4;
-            //trapframe.epc += 4;
-            PGTBIT.root_addr();
-            info!("root pagetable {:#x}", PGTBIT.root_addr());
-            
-            syscall(
-                task.get_trapframe().a7,
-            [task.get_trapframe().a0,task.get_trapframe().a1,task.get_trapframe().a2]);
+            trapframe.epc = sepc::read();
+            trapframe.epc += 4;
+            let ret = syscall(trapframe.a7,[trapframe.a0,trapframe.a1,trapframe.a2]);
+            trapframe.a0 = ret as usize;
         }
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
             ktrap::time_intr();
-            //usertarpret()
+            usertarpret();
         }
         _ => {
             println!("not write trap{:?} {:#x}",scause::read().cause(),stval::read());
             panic!("not write");
         }
     }
+    usertarpret()
 }
 #[no_mangle]
 pub fn kernel_trap() -> (){

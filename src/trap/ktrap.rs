@@ -1,4 +1,5 @@
 use core::{arch::global_asm,str};
+use crate::cpu::CPUS;
 use crate::riscv::{intr_on, intr_off, w_sie, SIE_STIE, intr_get};
 use crate::sbi::set_timer;
 use crate::syscall::syscall;
@@ -38,9 +39,11 @@ pub fn time_intr(){
     //println!("run here");
     clock_set_next_time();
     CLOCK_CNT.clk_run();
-    if CLOCK_CNT.get_cnt() == 100 {
-        println!("100 ticks");
+    if CLOCK_CNT.get_cnt() == 5 {
+        println!("5 ticks");
         CLOCK_CNT.restart_clk();
+        let proc = CPUS.my_proc().unwrap();
+        proc.yielding();
     }
 }
 

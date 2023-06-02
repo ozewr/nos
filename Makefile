@@ -40,6 +40,10 @@ qemu-gdb:all
 	@$(QEMU) $(QFLAGS) -kernel $K/os -S  -gdb tcp::26000
 file : 
 	./easy-fs-fuse -s ./user/src/bin/ -t ./user/target/riscv64gc-unknown-none-elf/release/
+ufile :
+	make clean -C user
+	make -C user
+	make file
 add:
 	cargo clean
 	git add  src user Cargo.lock Cargo.toml Makefile README.md .cargo 
