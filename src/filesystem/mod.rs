@@ -2,22 +2,22 @@ pub mod fs;
 pub mod inode;
 use core::f32::INFINITY;
 
-use lazy_static::*;
-use fs::*;
+use crate::{info, page_alloc::UserBuffer};
 use alloc::sync::Arc;
 use easy_fs::BlockDevice;
 use fs::QUEUE_FRAMES;
-use crate::{info, page_alloc::UserBuffer};
+use fs::*;
+use lazy_static::*;
 pub trait File: Send + Sync {
-        fn readable(&self) -> bool;
-        fn writable(&self) -> bool;
-        
-        fn read(&self ,buf: UserBuffer) -> usize ;
-        fn write(&self ,buf:UserBuffer) -> usize;
-}   
+    fn readable(&self) -> bool;
+    fn writable(&self) -> bool;
+
+    fn read(&self, buf: UserBuffer) -> usize;
+    fn write(&self, buf: UserBuffer) -> usize;
+}
 
 lazy_static! {
-        pub static ref BLOCK_DEVICE: Arc<dyn BlockDevice> = Arc::new(BlockDeviceImpl::new());
+    pub static ref BLOCK_DEVICE: Arc<dyn BlockDevice> = Arc::new(BlockDeviceImpl::new());
 }
 
 #[allow(unused)]

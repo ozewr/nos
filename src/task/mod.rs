@@ -33,7 +33,7 @@ pub fn scheduler() -> ! {
             out_data.state = State::Run;
             let next_context = &inner.context as *const Context;
             let dbug_context = inner.context.clone();
-            info!("devbug context {:#x}",dbug_context.sp);
+            //info!("devbug context {:#x}",dbug_context.sp);
             drop(out_data);
             drop(inner);
             cpu.task = Some(task);

@@ -103,6 +103,7 @@ pub struct TcbInner{
     pub parent:Option<Weak<TaskControlBlock>>,
     pub children:Vec<Arc<TaskControlBlock>>,
     pub context: Context,
+    pub parent_root:usize,
 }
 impl TcbInner {
     pub fn new() -> Self {
@@ -115,6 +116,7 @@ impl TcbInner {
             parent: None,
             children: Vec::new(),
             context: Context::new(),
+            parent_root: 0,
         }
     }
     pub fn set_pagetable(&mut self , pagetable_ptr:Box<PageTable> ){
@@ -313,7 +315,7 @@ impl TaskControlBlock {
     pub fn fork(self: &Arc<TaskControlBlock>) -> Arc<TaskControlBlock>{
         let new_pid = unsafe {TASKMANGER.lock().alloc_pid().unwrap()};
         //pagetable is not same but pagetable's inner is same 
-        let mut new_pgtbl_ptr = Box::new(fork_pagetable(self.inner_mut().pagetable()));
+        let mut new_pgtbl_ptr = Box::new(fork_cow(self.inner_mut().pagetable()));
         //find new trapframe
         let new_trapframe:&mut TrapFrame = PhyPageNum(new_pgtbl_ptr.walk_addr(TRAPFRAME).unwrap()).get_mut();
         let new_name = self.name();
@@ -347,6 +349,7 @@ impl TaskControlBlock {
             new_context,
         );
         new_tcb.inner_mut().parent = Some(Arc::downgrade(self));
+        new_tcb.inner_mut().parent_root= self.inner_mut().pagetable().root.0;
         let new_tcb = Arc::new(new_tcb);
         self.inner_mut().children.push(new_tcb.clone( ));
         new_tcb
@@ -400,66 +403,14 @@ impl TaskControlBlock {
     }
 }
 
-pub fn fork_pagetable(pagetable_old :&mut Box<PageTable>) -> PageTable{
+use crate::cow::{copy_pagetable,map_stack,map_trapframe,map_trampoline};
+
+pub fn fork_cow(pagetable_old :&mut Box<PageTable>) -> PageTable{
     let mut pagetable_new = PageTable::new();
-    let new_root = FRAME_ALLOC.page_alloc();
-    pagetable_new.root = new_root.pages;
-    pagetable_new.save_page(new_root);
+    copy_pagetable(&mut pagetable_new,pagetable_old);
+    map_stack(&mut pagetable_new,pagetable_old);
+    map_trapframe(&mut pagetable_new,pagetable_old);
+    map_trampoline(&mut pagetable_new);
 
-    let mut v:Vec<usize> = Vec::new();
-    for i in pagetable_old.data.iter(){
-        let addr = *i;
-        v.push(addr); 
-    }
-    for i in v.iter() {
-        let va = (*i);
-        //alloc and save page
-        //let mut va = *va;
-        let gurd = FRAME_ALLOC.page_alloc();
-        let pa = gurd.pages;
-        pagetable_new.save_page(gurd);
-        //find src and flags
-        let flags = pagetable_old.walk_perm(va).unwrap();
-        let old_pa = pagetable_old.walk_addr(va).unwrap();
-        let src_old = PhyPageNum(old_pa);
-        let dst_new = PhyPageNum(pa.0);
-        dst_new.get_bytes_array()
-            .copy_from_slice(src_old.get_bytes_array());
-        //map pages
-        pagetable_new.mappages(
-            va.into(), 
-            pa.0.into(),
-            PGSZ, 
-            PTE_U|PTE_X|PTE_R|PTE_W
-        );
-        //va += PGSZ;
-    }
-    //map traamlibe
-    extern "C"{
-        fn trampoline();
-    }
-    pagetable_new.mappages(
-        TRAMPOLINE.into(),
-        (trampoline as usize).into(), 
-        PGSZ, 
-        PTE_X | PTE_R
-    );
-    //map trapframe
-    let old_trapframe = PhyPageNum(pagetable_old.walk_addr(TRAPFRAME).unwrap());
-    let gurd = FRAME_ALLOC.page_alloc();
-    let new_trapframe = gurd.pages;
-    pagetable_new.save_page(gurd);
-    new_trapframe.get_bytes_array().copy_from_slice(old_trapframe.get_bytes_array());
-    
-    pagetable_new.mappages(
-        TRAPFRAME.into(),
-        new_trapframe.0.into(),
-        PGSZ,
-        PTE_W|PTE_R|PTE_X
-    );
-
-    //map stacks
-    //map_user_stack(&mut pagetable_new,USERSTACK, USERSTACK_TOP);
-    map_user_stack_fork(pagetable_old, &mut pagetable_new, USERSTACK,USERSTACK_TOP);
     pagetable_new
 }

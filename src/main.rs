@@ -11,7 +11,7 @@ mod sync;       mod cpu;        mod utils;
 mod riscv;      mod thread;     mod trap;
 mod syscall;    mod kalloc;
 mod memlayout;  mod vm;         mod page_alloc;
-mod filesystem; mod config;
+mod filesystem; mod config;     mod cow;
 mod task;
 use core::{
     arch::global_asm,

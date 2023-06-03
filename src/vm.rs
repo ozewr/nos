@@ -198,8 +198,35 @@ impl PageTable{
             }
             a += PGSZ;
             pa+= PGSZ;
+
+            if(a==last){
+                break;
+            }
         }
         true
+    }
+
+    pub fn umappage(&mut self,va:usize) -> Option<usize>{
+            let pgtbl_arry:&mut PhyPageNum;
+            if va >MAXVA{
+                return None;
+            }else {
+                let mut pgtbl_arry:&mut [PhyPageNum] = self.root.get_pte_array();
+                if let Some(pagetable) = self.walk(va, false, pgtbl_arry){
+                    let idx = (va >> (12)) & 0x1ff;
+                    let mut pte: PhyPageNum = pagetable[idx];
+                    let addr: usize = ((pte.0 >>10)<<12);
+                    if (pte).is_v(){
+                        pte.0=pte.0&(!PTE_V);
+                        pagetable[idx]=pte;
+                        return Some(pte.0);
+                    }else {
+                        return None;
+                    }
+                }else {
+                    return None;
+                }
+            }
     }
 
     pub fn walk(&mut self,va:usize,alloc:bool,mut pgtbl_arry:&'static mut [PhyPageNum]) -> Option<&'static mut [PhyPageNum]> {
@@ -257,7 +284,8 @@ impl PageTable{
                     return None;
                 }
             }
-    }   
+    }
+
     pub fn walk_perm(&mut self,va:usize) -> Option<usize>{
         if va >MAXVA{
             return None;
@@ -303,7 +331,6 @@ impl PageTable{
                     break;
                 }
 
-                info!("vm 305 {:#x}",va); 
                 self.mappages(
                     va.into(), 
                     pa.into(), 

@@ -30,6 +30,7 @@ pub const PTE_U:usize = 1<<4;
 pub const PTE_G:usize = 1<<5;
 pub const PTE_A:usize = 1<<6;
 pub const PTE_D:usize = 1<<7;
+pub const PTE_F:usize = 1<<9;
 
 #[macro_export]
 macro_rules! kstack {

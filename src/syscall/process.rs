@@ -32,8 +32,9 @@ pub fn sys_fork() -> isize{
     let new_trapframe = new_task.get_trapframe();
     new_trapframe.a0 = 0;
     unsafe { TASKMANGER.lock().add_task(new_task)};
-    new_pid as isize 
+    new_pid as isize
 }
+
 pub fn sys_exec(path :*const u8) -> isize {
     let task = CPUS.my_proc().unwrap();
     let path = task.inner_mut().pagetable().translated_str(path);
