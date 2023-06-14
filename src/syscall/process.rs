@@ -43,8 +43,7 @@ pub fn sys_exec(path :*const u8) -> isize {
         task.exec(all_data.as_slice());
         0
     }else {
-        panic!("run here")
-        //-1
+        -1
     }
 }
 
@@ -63,7 +62,7 @@ pub fn sys_waitpid(pid:isize,exit_code_ptr:*mut i32) -> isize {
     });
     if let Some((idx,_)) = pair{
         let child = inner.children.remove(idx);
-        assert_eq!(Arc::strong_count(&child),1);
+        //assert_eq!(Arc::strong_count(&child),1);
         let found_pid = child.pid() as isize;
         let exit_code = unsafe { child.out_data.lock() }.xstate;
         *(inner.pagetable().tasnlate_refmut(exit_code_ptr)) = exit_code;
@@ -71,6 +70,4 @@ pub fn sys_waitpid(pid:isize,exit_code_ptr:*mut i32) -> isize {
     }else {
         -2
     }
-
-
 }

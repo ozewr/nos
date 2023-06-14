@@ -10,12 +10,12 @@ QFLAGS += -bios default
 QFLAGS += -drive file=$(FS_IMG),if=none,format=raw,id=x0
 QFLAGS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 
 
-CFLAGS = --release 
+CFLAGS = 
 
 all:
 	@make -C user
 	@echo "make user"
-	@cargo xbuild --features debug
+	@cargo xbuild $(CFLAGS)
 	@echo "building ..."
 	@$(OBJDUMP) -S $K/os > os.asm
 	@echo "make asm file ..."

@@ -376,9 +376,9 @@ impl PageTable{
             end_va = end_va.min(end);
 
             if end_va & (PGSZ -1) == 0 {
-                v.push(&mut ppn.get_bytes_array()[(start_va.0 &(PGSZ -1))..]);
+                v.push(&mut ppn.get_bytes_array()[(start &(PGSZ -1))..]);
             }else {
-                v.push(&mut ppn.get_bytes_array()[(start_va.0 & (PGSZ-1))..(end_va & (PGSZ-1))]);
+                v.push(&mut ppn.get_bytes_array()[(start & (PGSZ-1))..(end_va & (PGSZ-1))]);
             }
             start = end_va;
         }

@@ -2,7 +2,7 @@
 use core::panic;
 use crate::{sbi::consele_putchar, cpu::CPUS, riscv::{intr_off, intr_on},};
 use core::{fmt::{self,Write, Arguments},};
-
+use crate::println;
 use crate::sync::spin::Spin;
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -61,7 +61,10 @@ macro_rules! println {
 #[macro_export]
 macro_rules! info {
     ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::console::print(format_args!(concat!("\x1b[32m[INFO]:",concat!($fmt,"\x1b[0m\n")) $(, $($arg)+)?))
+        #[cfg(feature = "debug")]
+        $crate::console::print(format_args!(concat!("\x1b[32m[INFO]:",concat!($fmt,"\x1b[0m")) $(, $($arg)+)?));
+        #[cfg(feature = "debug")]
+        crate::println!(" \x1b[32m{}:{}\x1b[0m", file!(), line!());
     }
 }
 

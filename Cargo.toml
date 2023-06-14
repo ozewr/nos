@@ -12,5 +12,6 @@ easy-fs = { path = "../rCore-Tutorial-v3/easy-fs" }
 buddy_system_allocator = "0.6"
 virtio-drivers = { git = "https://github.com/rcore-os/virtio-drivers", rev = "4ee80e5" }
 xmas-elf = "0.7.0"
+sbi-rt = { version = "0.0.2", features = ["legacy"] }
 [features]
 debug = []

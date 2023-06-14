@@ -44,3 +44,9 @@ pub fn set_timer(time_value:usize){
     sbi_call(SBI_SET_TIMER,time_value ,0,0,0);
     //println!("sbi call {}", i);
 }
+pub fn sbi_console_get_char() -> usize {
+    #[allow(deprecated)]
+    let ret = sbi_rt::legacy::console_getchar();
+    //info!("sbi.rs: ret{:#x}",ret);
+    ret
+}

@@ -108,12 +108,12 @@ impl StackFrame {
             None => {
                 let ret = self.current;
                 self.current += PGSZ;
-                info!("{:#x} count({})++",ret,PAGE_COUNTS.getcount(ret));
+                //info!("{:#x} count({})++",ret,PAGE_COUNTS.getcount(ret));
                 PAGE_COUNTS.addcount(ret);
                 ret.into()
             }
             _ => {
-                info!("{:#x} count({})++",pages.unwrap(),PAGE_COUNTS.getcount(pages.unwrap()));
+                //info!("{:#x} count({})++",pages.unwrap(),PAGE_COUNTS.getcount(pages.unwrap()));
                 PAGE_COUNTS.addcount(pages.unwrap());
                 pages.unwrap().into()
             }

@@ -1,5 +1,6 @@
 pub mod fs;
 pub mod inode;
+pub mod stdio;
 use core::f32::INFINITY;
 
 use crate::{info, page_alloc::UserBuffer};

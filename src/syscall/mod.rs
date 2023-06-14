@@ -1,6 +1,6 @@
 use crate::{filesystem::{inode::ROOT_INODE, fs::QUEUE_FRAMES}, info, page_alloc::FRAME_ALLOC, println};
 //use crate::filesystem::
-use self::{fs::{sys_write, sys_open, sys_close}, process::{sys_exec, sys_fork, sys_exit}};
+use self::{fs::{sys_write, sys_open, sys_close, sys_read}, process::{sys_exec, sys_fork, sys_exit, sys_yield, sys_waitpid}};
 use crate::open_file;
 use crate::READONLY;
 //use crate::filesystem::
@@ -30,10 +30,10 @@ pub fn syscall(syscall_id :usize ,arg:[usize;3]) -> isize {
             sys_close(arg[0])
         }
         SYSCALL_READ => {
-            todo!()
+            sys_read(arg[0], arg[1] as *const u8, arg[2])
         }
         SYSCALL_YIELD => {
-            todo!()
+            sys_yield()
         }
         SYSCALL_GET_TIME => {
             todo!()
@@ -45,7 +45,7 @@ pub fn syscall(syscall_id :usize ,arg:[usize;3]) -> isize {
             sys_fork()
         }
         SYSCALL_WAITPID => {
-            todo!()
+            sys_waitpid(arg[0] as isize, arg[1] as *mut i32)
         }
         SYSCALL_WRITE => {
             sys_write(arg[0], arg[1] as *const u8, arg[2])

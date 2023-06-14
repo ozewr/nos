@@ -3,12 +3,13 @@ use core::cell::{UnsafeCell, RefMut};
 use core::future::Ready;
 use core::ptr::replace;
 use core::{usize, task, u8};
-
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::{self, Weak};
-use alloc::vec::{Vec, self};
+use alloc::vec::Vec;
+use alloc::vec;
 use riscv::addr::Page;
+use crate::filesystem::stdio::{Stdin, Stdout};
 use crate::memlayout::{PTE_U, PTE_R, PTE_X, TRAPFRAME, TRAMPOLINE, PTE_W, KERNEL_STACK_SIZE, USERSTACK_TOP, USERSTACK};
 use crate::riscv::PGSZ;
 use crate::sync::UPSafeCell;
@@ -112,7 +113,12 @@ impl TcbInner {
             name: String::new(),
             pagetable: None,
             trapframe: None,
-            files: Vec::new(),
+            files: vec![
+                Some(Arc::new(Stdin)),
+                Some(Arc::new(Stdout)),
+                //error
+                Some(Arc::new(Stdout)),
+            ],
             parent: None,
             children: Vec::new(),
             context: Context::new(),

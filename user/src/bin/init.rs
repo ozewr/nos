@@ -9,18 +9,13 @@ use user_lib::{exec, fork};
 #[no_mangle]
 fn main() -> i32 {
     println!("init run!!!");
-    for i in 0..2 {
         let fork_ret = fork();
         if fork_ret == 0 {
-            println!("child{}",i);
-            exec("hello_world\0");
-            loop{}
+            exec("initproc\0");
         }
         else {
             println!("parent !!!");
-            //loop {}
-            continue;
+            loop {}
         }
-    }
     0
 }

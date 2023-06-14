@@ -40,7 +40,7 @@ pub fn time_intr(){
     clock_set_next_time();
     CLOCK_CNT.clk_run();
     if CLOCK_CNT.get_cnt() == 5 {
-        println!("5 ticks");
+        //println!("5 ticks");
         CLOCK_CNT.restart_clk();
         let proc = CPUS.my_proc().unwrap();
         proc.yielding();
