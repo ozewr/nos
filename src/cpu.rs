@@ -97,13 +97,7 @@ impl Cpu {
             context:Context::new(),
         }
     }
-
-    // unsafe fn get_task(&mut self) -> Option<Arc<TaskControlBlock>>{
-    //     let task = self.task;
-    //     self.task = None;
-    //     task
-    // }
-
+    
     unsafe fn locked(&mut self, old:bool) -> IntrLock {
         intr_off();
         if *self.noff.get() == 0{

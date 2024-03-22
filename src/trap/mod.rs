@@ -63,7 +63,7 @@ pub extern "C" fn usertarpret() {
     }
 
     sepc::write(trap_frame.epc);
-    let addr = unsafe { trap_frame as *const _ as usize };
+    //let addr = unsafe { trap_frame as *const _ as usize };
     let satp = task.pagetable_root().as_satp();
     //println!("satp{:#x}",satp);
     let fn_0: usize = TRAMPOLINE + (userret as usize - trampoline as usize);
@@ -128,6 +128,10 @@ pub fn kernel_trap() -> () {
     let scause = scause::read();
     let sscratch = sscratch::read();
     let stcval = stval::read();
+    
+    let s = sstatus.spp();
+    println!("{:?}",s);
+    
     match scause.cause() {
         Trap::Exception(Exception::Breakpoint) => {
             ktrap::break_intr();

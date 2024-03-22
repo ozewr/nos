@@ -114,6 +114,7 @@ impl StackFrame {
             }
             _ => {
                 //info!("{:#x} count({})++",pages.unwrap(),PAGE_COUNTS.getcount(pages.unwrap()));
+                // panic!("shuent");
                 PAGE_COUNTS.addcount(pages.unwrap());
                 pages.unwrap().into()
             }

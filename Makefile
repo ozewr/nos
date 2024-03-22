@@ -1,6 +1,7 @@
 K = target/riscv64gc-unknown-none-elf/debug
 #FS_IMG := ../easy-fs-crate/target/fs.img
 FS_IMG = ./user/target/riscv64gc-unknown-none-elf/release/fs.img
+CPUS = 3
 OBJDUMP = rust-objdump
 OBJCOPY = rust-objcopy
 
@@ -37,7 +38,7 @@ output:
 .PHONY:qemu-gdb add
 qemu-gdb:all
 	@echo "please link localhot::26000"
-	@$(QEMU) $(QFLAGS) -kernel $K/os -S  -gdb tcp::26000
+	$(QEMU) $(QFLAGS) -kernel $K/os -S  -gdb tcp::26000
 file : 
 	./easy-fs-fuse -s ./user/src/bin/ -t ./user/target/riscv64gc-unknown-none-elf/release/
 ufile :

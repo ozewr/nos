@@ -87,9 +87,6 @@ impl<'a, T: 'a> SpinGuard<'a, T> {
 impl<'a, T: 'a> Drop for SpinGuard<'a, T> {
     fn drop(&mut self) {
         assert!(self.holding(), "release {}", self.spin.name);
-        // if self.spin.name == "initcode"{
-        //     info!("spin 88 unlock");
-        // }
         self.spin.locked.store(ptr::null_mut(),Ordering::Release);
     }
 }

@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(panic_info_message)]
 #![allow(unused)]
+#![feature(core_intrinsics)]
 #![feature(alloc_error_handler)]
 extern crate alloc;
 extern crate xmas_elf;
@@ -17,13 +18,16 @@ use core::{
     arch::global_asm,
     arch::asm, usize, cell::UnsafeCell,
 };
+use core::intrinsics::breakpoint;
 use alloc::boxed::Box;
 use filesystem::BLOCK_DEVICE;
+use ::riscv::asm::ebreak;
 //use easy_fs::block_cache::{self, block_cache};
-use ::riscv::asm;
+use ::riscv::{asm, register::sstatus};
 use task::scheduler;
 use trap::usertarpret;
 use vm::PageTable;
+use crate::trap::kernel_trap;
 use crate::{
     riscv::{r_tp, intr_get, intr_on},
     sbi::shutdown,
@@ -45,9 +49,16 @@ pub fn rust_main() -> ! {
     let mut pagetable :PageTable;
     if cpuid == 0 {
         print_info();
+
+        let s = sstatus::read().spp();
+        println!("{:?}",s);
+    
         println!("hart {} is botting",cpuid);
         trap::ktrap_init();//trap init
         ktrap::timerinit();
+        let s = sstatus::read().spp();
+        println!("{:?}",s);
+        unsafe { ebreak() };
         
         kalloc::init_heap();//kernel heap init
         
@@ -58,8 +69,12 @@ pub fn rust_main() -> ! {
         PGTBIT.set_bit(pagetable.as_satp());
         PGTBIT.set_root(pagetable.root.0);
         pgtbl_install(cpuid);
+
+        
         // task::manager::init();
         // task::runner::run_task();
+        let page = FRAME_ALLOC.page_alloc();
+        println!("a : {}",page.pages.0);
         let last_page:usize = PGTBIT.root_addr();
         fs_ls();
         task::manager::init();
@@ -68,23 +83,13 @@ pub fn rust_main() -> ! {
         println!("hart {} is botting",cpuid);
         trap::ktrap_init();
         pgtbl_install(cpuid);
+
+        let page = FRAME_ALLOC.page_alloc();
+        println!("a : {}",page.pages.0);
     }
     scheduler();
     panic!("error can't run here");
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 fn pgtbl_install(cpuid :usize){
